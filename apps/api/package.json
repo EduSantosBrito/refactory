@@ -1,0 +1,15 @@
+{
+  "name": "@refactory/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot src/index.ts",
+    "start": "bun src/index.ts",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "check": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "^4.0.0-beta.43",
+    "effect": "^4.0.0-beta.43"
+  }
+}

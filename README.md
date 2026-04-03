@@ -1,15 +1,30 @@
 # refactory
 
-To install dependencies:
+Monorepo with:
+
+- `apps/web`: React frontend on Vite+
+- `apps/api`: Bun API built with Effect v4
+
+## Install
 
 ```bash
 bun install
 ```
 
-To run:
+## Develop
 
 ```bash
-bun run index.ts
+bun run dev
 ```
 
-This project was created using `bun init` in bun v1.3.9. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+## Build
+
+```bash
+bun run build
+```
+
+## Check
+
+```bash
+bun run check
+```
