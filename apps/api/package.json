@@ -9,6 +9,7 @@
     "check": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@refactory/contracts": "workspace:*",
     "@effect/platform-bun": "^4.0.0-beta.43",
     "effect": "^4.0.0-beta.43"
   }

@@ -1,49 +1,34 @@
 import { BunHttpServer, BunRuntime } from "@effect/platform-bun";
 import { Effect, Layer } from "effect";
-import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter } from "effect/unstable/http";
+import { ApiDocs, ApiRoutes } from "./api.ts";
+import { AppConfig } from "./app-config.ts";
+import { ActorAuthLive } from "./auth.ts";
+import { ProfileRepository } from "./profiles.ts";
+import { SqliteDatabase } from "./sqlite.ts";
+import { WorldRepository, WorldService } from "./worlds.ts";
 
-const parsePort = (value: string | undefined, fallback: number) => {
-  if (value === undefined) {
-    return fallback;
-  }
-
-  const candidate = Number(value);
-
-  return Number.isInteger(candidate) && candidate > 0 ? candidate : fallback;
-};
-
-const port = parsePort(Bun.env.API_PORT ?? Bun.env.PORT, 3001);
-
-const ApiRoutes = HttpRouter.use(
-  Effect.fn(function* (router) {
-    yield* router.add(
-      "GET",
-      "/api/health",
-      HttpServerResponse.json({
-        message: `Effect API online on :${port}`,
-        name: "refactory-api",
-        status: "ok",
-      }),
-    );
-    yield* router.add(
-      "GET",
-      "/api/game",
-      HttpServerResponse.json({
-        name: "Refactory",
-        theme: "Factory automation sandbox",
-      }),
-    );
-  }),
+const PersistenceLive = Layer.mergeAll(ProfileRepository.Live, WorldRepository.Live).pipe(
+  Layer.provide(SqliteDatabase.Live),
 );
 
-const ServerLive = HttpRouter.serve(ApiRoutes).pipe(
-  Layer.provide(BunHttpServer.layer({ port })),
-);
+const DomainLive = Layer.mergeAll(AppConfig.Live, PersistenceLive);
 
-const program = Layer.launch(ServerLive).pipe(
-  Effect.tap(() => Effect.log(`API listening on http://localhost:${port}`)),
-);
+const WorldServiceLive = WorldService.Live.pipe(Layer.provide(DomainLive));
 
-BunRuntime.runMain(program, {
+const ServerLive = Effect.gen(function* () {
+  const config = yield* AppConfig;
+  const routes = Layer.mergeAll(ApiRoutes, ApiDocs);
+
+  const server = HttpRouter.serve(routes).pipe(
+    Layer.provide(BunHttpServer.layer({ port: config.port })),
+    Layer.provide([AppConfig.Live, PersistenceLive, WorldServiceLive, ActorAuthLive]),
+  );
+
+  yield* Effect.log(`API listening on http://localhost:${config.port}`);
+  return yield* Layer.launch(server);
+});
+
+BunRuntime.runMain(ServerLive.pipe(Effect.provide(AppConfig.Live)), {
   disableErrorReporting: true,
 });

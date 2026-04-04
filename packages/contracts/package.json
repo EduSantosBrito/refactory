@@ -1,0 +1,17 @@
+{
+  "name": "@refactory/contracts",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./api": "./src/api.ts",
+    "./auth": "./src/auth.ts",
+    "./worlds": "./src/worlds.ts"
+  },
+  "scripts": {
+    "check": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "effect": "^4.0.0-beta.43"
+  }
+}

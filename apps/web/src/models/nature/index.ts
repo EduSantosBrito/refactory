@@ -1,0 +1,10 @@
+export { OakTree } from "./OakTree";
+export { DetailedTree } from "./DetailedTree";
+export { PineTree } from "./PineTree";
+export { FlatTopTree } from "./FlatTopTree";
+export { Flower } from "./Flower";
+export { Bush } from "./Bush";
+export { GrassClump } from "./GrassClump";
+export { Rock } from "./Rock";
+export { Campfire } from "./Campfire";
+export { TreeStump } from "./TreeStump";
