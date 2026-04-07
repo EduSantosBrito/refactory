@@ -2,6 +2,16 @@ import { Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { ActorAuth, ActorAuthError } from "./auth.ts";
 import {
+  SubmitWorldCommandRequest,
+  SubmitWorldCommandResponse,
+  WorldCommandQueueFullError,
+} from "./commands.ts";
+import {
+  GetWorldRuntimeCheckpointResponse,
+  GetWorldRuntimeResponse,
+  WorldRuntimeUnavailableError,
+} from "./runtime.ts";
+import {
   CreateWorldRequest,
   CreateWorldResponse,
   GetWorldResponse,
@@ -61,6 +71,40 @@ const WorldsApi = HttpApiGroup.make("worlds")
       error: [ActorAuthError, WorldAccessDeniedError, WorldNotFoundError],
       params: WorldIdParams,
       success: GetWorldResponse,
+    })
+      .middleware(ActorAuth)
+      .annotate(OpenApi.Description, actorDocsDescription),
+  )
+  .add(
+    HttpApiEndpoint.get("getWorldRuntime", "/worlds/:worldId/runtime", {
+      error: [ActorAuthError, WorldAccessDeniedError, WorldNotFoundError, WorldRuntimeUnavailableError],
+      params: WorldIdParams,
+      success: GetWorldRuntimeResponse,
+    })
+      .middleware(ActorAuth)
+      .annotate(OpenApi.Description, actorDocsDescription),
+  )
+  .add(
+    HttpApiEndpoint.get("getWorldRuntimeCheckpoint", "/worlds/:worldId/runtime/checkpoint", {
+      error: [ActorAuthError, WorldAccessDeniedError, WorldNotFoundError],
+      params: WorldIdParams,
+      success: GetWorldRuntimeCheckpointResponse,
+    })
+      .middleware(ActorAuth)
+      .annotate(OpenApi.Description, actorDocsDescription),
+  )
+  .add(
+    HttpApiEndpoint.post("submitWorldCommand", "/worlds/:worldId/commands", {
+      error: [
+        ActorAuthError,
+        WorldAccessDeniedError,
+        WorldCommandQueueFullError,
+        WorldNotFoundError,
+        WorldRuntimeUnavailableError,
+      ],
+      params: WorldIdParams,
+      payload: SubmitWorldCommandRequest,
+      success: SubmitWorldCommandResponse,
     })
       .middleware(ActorAuth)
       .annotate(OpenApi.Description, actorDocsDescription),

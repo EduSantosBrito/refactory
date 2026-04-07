@@ -285,7 +285,7 @@ const buildWorldSnapshot = (mode: WorldMode, hostAssetId: AssetId, hostPublicKey
   storage: {
     modularStorage: {
       acceptedItemIds: ["iron_ingot"],
-      inputPortCount: 6,
+      inputPortCount: 4,
       storedItems: [],
     },
   },

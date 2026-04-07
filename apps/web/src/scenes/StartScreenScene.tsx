@@ -13,8 +13,6 @@ import {
   Bush,
   GrassClump,
   Rock,
-  Campfire,
-  TreeStump,
 } from "../models/nature";
 
 interface CharacterSpec {
@@ -134,10 +132,6 @@ function ParadiseIsland() {
       {/* ── Rocks ── */}
       <Rock position={[3.65, 0.03, 2.95]} scale={3.2} rotation={[0, 0.7, 0]} />
       <Rock position={[5.35, 0.03, 2.35]} scale={2.4} rotation={[0, -0.28, 0]} />
-
-      {/* ── Campfire & stump ── */}
-      <Campfire position={[0.05, 0.04, 1.8]} scale={2.8} />
-      <TreeStump position={[2.0, 0.04, 1.6]} scale={3.2} rotation={[0, 0.3, 0]} />
 
       {/* ── Characters ── */}
       {CHARACTERS.map((c) => (

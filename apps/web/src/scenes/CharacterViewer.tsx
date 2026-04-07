@@ -1,18 +1,13 @@
-import { useRef, useMemo, useLayoutEffect, useEffect, Suspense } from "react";
-import { useGLTF, Html } from "@react-three/drei";
-import { useFrame } from "@react-three/fiber";
-import { AnimationMixer, Box3, LoopOnce, MathUtils, Vector3, CylinderGeometry } from "three";
-import type { AnimationAction } from "three";
-import type { Group, Object3D } from "three";
-import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.js";
+import { Suspense } from "react";
+import { Html } from "@react-three/drei";
+import { CylinderGeometry } from "three";
 import { COLORS, MAT, type ModelProps } from "../models/colors";
 import { Character, type CharacterName } from "../models/Character";
 import {
-  IronNode,
-  CopperNode,
+  ResourceNode,
+  NODE_MINER_OFFSET,
   Smelter,
   Processor,
-  ConveyorBelt,
   ModularStorage,
   Burner,
   PowerPole,
@@ -23,19 +18,32 @@ import {
   BeltSegment,
   BeltCurve,
   BeltChain,
-  OakTree,
-  DetailedTree,
-  PineTree,
-  FlatTopTree,
-  Flower,
-  Bush,
-  GrassClump,
-  Rock,
-  Campfire,
-  TreeStump,
+  ModularBuilding,
 } from "../models";
+import {
+  Foundation as BuildingFoundation,
+  Body as BuildingBody,
+  PowerUnit,
+  AntennaModule,
+  ChimneyStack,
+  TurbinePlate,
+  DrillHead,
+  TankCluster,
+  HeatSinkArray,
+  SortingFrame,
+  SideTank,
+  SideVent,
+  SidePipe,
+  SidePanel,
+  SideLamp,
+  BiomassBurner,
+  OreSmelter,
+  ProcessorUnit,
+  ContainerStorage,
+  PersonalBox,
+} from "../models/building";
 import type { ChainSegment, ChainItem } from "../models";
-import { CURVE_ARC_LENGTH } from "../models/belt";
+import { CURVE_ARC_LENGTH, getBeltLoopItemCount } from "../models/belt";
 
 /* ── Types ─────────────────────────────────────────────────── */
 
@@ -48,15 +56,6 @@ interface CharacterEntry {
   roam?: boolean;
 }
 
-interface GltfEntry {
-  kind: "gltf";
-  name: string;
-  path: string;
-  targetHeight?: number;
-  animate?: string | string[];
-  roam?: boolean;
-}
-
 interface ComponentEntry {
   kind: "component";
   name: string;
@@ -64,7 +63,7 @@ interface ComponentEntry {
   scale?: number;
 }
 
-type Entry = CharacterEntry | GltfEntry | ComponentEntry;
+type Entry = CharacterEntry | ComponentEntry;
 
 interface Section {
   label: string;
@@ -79,17 +78,43 @@ const MechLegMd: React.FC<ModelProps> = (props) => (
   </group>
 );
 
-const OakTreeSm: React.FC<ModelProps> = (props) => <OakTree size="sm" {...props} />;
-const OakTreeLg: React.FC<ModelProps> = (props) => <OakTree size="lg" {...props} />;
-const DetailedTreeSm: React.FC<ModelProps> = (props) => <DetailedTree size="sm" {...props} />;
-const DetailedTreeLg: React.FC<ModelProps> = (props) => <DetailedTree size="lg" {...props} />;
-const PineTreeSm: React.FC<ModelProps> = (props) => <PineTree size="sm" {...props} />;
-const PineTreeLg: React.FC<ModelProps> = (props) => <PineTree size="lg" {...props} />;
-const FlatTopTreeSm: React.FC<ModelProps> = (props) => <FlatTopTree size="sm" {...props} />;
-const FlatTopTreeLg: React.FC<ModelProps> = (props) => <FlatTopTree size="lg" {...props} />;
-const FlowerPurple: React.FC<ModelProps> = (props) => <Flower color="purple" {...props} />;
-const FlowerRed: React.FC<ModelProps> = (props) => <Flower color="red" {...props} />;
-const FlowerYellow: React.FC<ModelProps> = (props) => <Flower color="yellow" {...props} />;
+/* ── ResourceNode variants for showcase ──────────────────── */
+const IronImpure: React.FC<ModelProps> = (props) => (
+  <ResourceNode resource="iron" purity="impure" {...props} />
+);
+const IronNormal: React.FC<ModelProps> = (props) => (
+  <ResourceNode resource="iron" purity="normal" {...props} />
+);
+const IronPure: React.FC<ModelProps> = (props) => (
+  <ResourceNode resource="iron" purity="pure" {...props} />
+);
+const CopperImpure: React.FC<ModelProps> = (props) => (
+  <ResourceNode resource="copper" purity="impure" {...props} />
+);
+const CopperNormal: React.FC<ModelProps> = (props) => (
+  <ResourceNode resource="copper" purity="normal" {...props} />
+);
+const CopperPure: React.FC<ModelProps> = (props) => (
+  <ResourceNode resource="copper" purity="pure" {...props} />
+);
+const MinerOnImpure: React.FC<ModelProps> = (props) => (
+  <group {...props}>
+    <ResourceNode resource="iron" purity="impure" />
+    <Miner nodeHeight={NODE_MINER_OFFSET.impure} />
+  </group>
+);
+const MinerOnNormal: React.FC<ModelProps> = (props) => (
+  <group {...props}>
+    <ResourceNode resource="iron" purity="normal" />
+    <Miner nodeHeight={NODE_MINER_OFFSET.normal} />
+  </group>
+);
+const MinerOnPure: React.FC<ModelProps> = (props) => (
+  <group {...props}>
+    <ResourceNode resource="iron" purity="pure" />
+    <Miner nodeHeight={NODE_MINER_OFFSET.pure} />
+  </group>
+);
 
 /* ── Belt demo wrappers ───────────────────────────────────── */
 
@@ -101,9 +126,7 @@ const BeltStraightStopped: React.FC<ModelProps> = (props) => (
   <BeltSegment power="stopped" content="filled" {...props} />
 );
 
-const BeltCurveDemo: React.FC<ModelProps> = (props) => (
-  <BeltCurve power="running" {...props} />
-);
+const BeltCurveDemo: React.FC<ModelProps> = (props) => <BeltCurve power="running" {...props} />;
 
 /** Small ore nugget for belt demo */
 function OreNugget() {
@@ -121,23 +144,208 @@ const CHAIN_SEGMENTS: ChainSegment[] = [
   { key: "s3", type: "straight", position: [0, 0, -0.5], rotationY: Math.PI / 2, pathLength: 1 },
 ];
 
-const CHAIN_ITEMS: ChainItem[] = Array.from({ length: 6 }, (_, i) => ({
+const CHAIN_TOTAL_LENGTH = CHAIN_SEGMENTS.reduce((total, segment) => total + segment.pathLength, 0);
+const CHAIN_ITEM_COUNT = getBeltLoopItemCount(CHAIN_TOTAL_LENGTH);
+
+const CHAIN_ITEMS: ChainItem[] = Array.from({ length: CHAIN_ITEM_COUNT }, (_, i) => ({
   id: `ore-${i}`,
-  progress: i / 6,
+  progress: i / CHAIN_ITEM_COUNT,
   node: <OreNugget />,
   heightOffset: 0.06,
 }));
 
-const BeltChainDemo: React.FC<ModelProps> = (props) => (
+function createBeltChainDemo(ratePerMinute: number): React.FC<ModelProps> {
+  return function BeltChainRateDemo(props) {
+    return (
+      <group {...props}>
+        <BeltChain
+          segments={CHAIN_SEGMENTS}
+          items={CHAIN_ITEMS}
+          power="running"
+          content="filled"
+          ratePerMinute={ratePerMinute}
+          loop
+        />
+      </group>
+    );
+  };
+}
+
+const BeltChain60Demo = createBeltChainDemo(60);
+const BeltChain120Demo = createBeltChainDemo(120);
+const BeltChain240Demo = createBeltChainDemo(240);
+
+/* ── Modular Building wrappers ──────────────────────────────── */
+
+const FoundationSmDemo: React.FC<ModelProps> = (props) => (
   <group {...props}>
-    <BeltChain
-      segments={CHAIN_SEGMENTS}
-      items={CHAIN_ITEMS}
-      power="running"
-      content="filled"
-      loop
-    />
+    <group position={[0, 0.13, 0]}>
+      <BuildingFoundation legSize="sm" />
+    </group>
   </group>
+);
+const FoundationMdDemo: React.FC<ModelProps> = (props) => (
+  <group {...props}>
+    <group position={[0, 0.21, 0]}>
+      <BuildingFoundation legSize="md" />
+    </group>
+  </group>
+);
+const BodyShortDemo: React.FC<ModelProps> = (props) => (
+  <group {...props}>
+    <group position={[0, 0.10, 0]}>
+      <BuildingBody height="short" />
+    </group>
+  </group>
+);
+const BodyDemo: React.FC<ModelProps> = (props) => (
+  <group {...props}>
+    <group position={[0, 0.134, 0]}>
+      <BuildingBody />
+    </group>
+  </group>
+);
+const BodyTallDemo: React.FC<ModelProps> = (props) => (
+  <group {...props}>
+    <group position={[0, 0.20, 0]}>
+      <BuildingBody height="tall" />
+    </group>
+  </group>
+);
+const PowerUnitDemo: React.FC<ModelProps> = (props) => (
+  <group {...props}><PowerUnit /></group>
+);
+const AntennaModuleDemo: React.FC<ModelProps> = (props) => (
+  <group {...props}><AntennaModule /></group>
+);
+const ChimneyStackDemo: React.FC<ModelProps> = (props) => (
+  <group {...props}><ChimneyStack /></group>
+);
+const TurbinePlateDemo: React.FC<ModelProps> = (props) => (
+  <group {...props}><TurbinePlate /></group>
+);
+const DrillHeadDemo: React.FC<ModelProps> = (props) => (
+  <group {...props}><DrillHead /></group>
+);
+const TankClusterDemo: React.FC<ModelProps> = (props) => (
+  <group {...props}><TankCluster /></group>
+);
+const HeatSinkArrayDemo: React.FC<ModelProps> = (props) => (
+  <group {...props}><HeatSinkArray /></group>
+);
+const SortingFrameDemo: React.FC<ModelProps> = (props) => (
+  <group {...props}><SortingFrame /></group>
+);
+const SideTankDemo: React.FC<ModelProps> = (props) => (
+  <group {...props}><SideTank /></group>
+);
+const SideVentDemo: React.FC<ModelProps> = (props) => (
+  <group {...props}><SideVent /></group>
+);
+const SidePipeDemo: React.FC<ModelProps> = (props) => (
+  <group {...props}><SidePipe /></group>
+);
+const SidePanelDemo: React.FC<ModelProps> = (props) => (
+  <group {...props}><SidePanel /></group>
+);
+const SideLampDemo: React.FC<ModelProps> = (props) => (
+  <group {...props}><SideLamp /></group>
+);
+
+/* Example buildings */
+
+const BuildingPowerPlant: React.FC<ModelProps> = (props) => (
+  <ModularBuilding
+    topModule="power"
+    sideAttachments={[
+      { type: "tank", face: 1 },
+      { type: "tank", face: 3 },
+      { type: "vent", face: 5 },
+    ]}
+    legSize="sm"
+    {...props}
+  />
+);
+const BuildingCommTower: React.FC<ModelProps> = (props) => (
+  <ModularBuilding
+    topModule="antenna"
+    sideAttachments={[
+      { type: "vent", face: 2 },
+      { type: "lamp", face: 6 },
+    ]}
+    legSize="sm"
+    {...props}
+  />
+);
+const BuildingFurnace: React.FC<ModelProps> = (props) => (
+  <ModularBuilding
+    topModule="chimney"
+    sideAttachments={[
+      { type: "vent", face: 2 },
+      { type: "vent", face: 6 },
+    ]}
+    legSize="sm"
+    {...props}
+  />
+);
+const BuildingRefinery: React.FC<ModelProps> = (props) => (
+  <ModularBuilding
+    topModule="tanks"
+    bodyHeight="short"
+    sideAttachments={[
+      { type: "pipe", face: 1 },
+      { type: "pipe", face: 5 },
+    ]}
+    legSize="sm"
+    {...props}
+  />
+);
+const BuildingGenerator: React.FC<ModelProps> = (props) => (
+  <ModularBuilding
+    topModule="turbine"
+    sideAttachments={[
+      { type: "vent", face: 0 },
+      { type: "vent", face: 4 },
+    ]}
+    legSize="md"
+    {...props}
+  />
+);
+const BuildingDrillStation: React.FC<ModelProps> = (props) => (
+  <ModularBuilding
+    topModule="drill"
+    bodyHeight="tall"
+    sideAttachments={[
+      { type: "tank", face: 1 },
+      { type: "tank", face: 5 },
+    ]}
+    legSize="md"
+    {...props}
+  />
+);
+const BuildingLogisticsHub: React.FC<ModelProps> = (props) => (
+  <ModularBuilding
+    topModule="sorting"
+    sideAttachments={[
+      { type: "panel", face: 2 },
+      { type: "panel", face: 6 },
+    ]}
+    legSize="sm"
+    {...props}
+  />
+);
+const BuildingCoolingStation: React.FC<ModelProps> = (props) => (
+  <ModularBuilding
+    topModule="heatsink"
+    bodyHeight="short"
+    sideAttachments={[
+      { type: "pipe", face: 1 },
+      { type: "pipe", face: 3 },
+      { type: "pipe", face: 5 },
+    ]}
+    legSize="sm"
+    {...props}
+  />
 );
 
 /* ── Data ──────────────────────────────────────────────────── */
@@ -146,25 +354,63 @@ const SECTIONS: Section[] = [
   {
     label: "Ultimate Space Kit",
     entries: [
-      { kind: "character", name: "Barbara (Bee) — Run", characterName: "Barbara", targetHeight: 0.45, animate: "Run", roam: true },
-      { kind: "character", name: "Fernando (Flamingo) — Idle", characterName: "Fernando", targetHeight: 0.45, animate: "Idle" },
-      { kind: "character", name: "Finn (Frog) — Wave", characterName: "Finn", targetHeight: 0.45, animate: "Wave" },
-      { kind: "character", name: "Rae (Red Panda) — Idle", characterName: "Rae", targetHeight: 0.45, animate: "Idle" },
+      {
+        kind: "character",
+        name: "Barbara (Bee) — Run",
+        characterName: "Barbara",
+        targetHeight: 0.45,
+        animate: "Run",
+        roam: true,
+      },
+      {
+        kind: "character",
+        name: "Fernando (Flamingo) — Idle",
+        characterName: "Fernando",
+        targetHeight: 0.45,
+        animate: "Idle",
+      },
+      {
+        kind: "character",
+        name: "Finn (Frog) — Wave",
+        characterName: "Finn",
+        targetHeight: 0.45,
+        animate: "Wave",
+      },
+      {
+        kind: "character",
+        name: "Rae (Red Panda) — Idle",
+        characterName: "Rae",
+        targetHeight: 0.45,
+        animate: "Idle",
+      },
+    ],
+  },
+  {
+    label: "Resource Nodes",
+    entries: [
+      { kind: "component", name: "Iron Impure", component: IronImpure, scale: 2.5 },
+      { kind: "component", name: "Iron Normal", component: IronNormal, scale: 2.5 },
+      { kind: "component", name: "Iron Pure", component: IronPure, scale: 2 },
+      { kind: "component", name: "Copper Impure", component: CopperImpure, scale: 2.5 },
+      { kind: "component", name: "Copper Normal", component: CopperNormal, scale: 2.5 },
+      { kind: "component", name: "Copper Pure", component: CopperPure, scale: 2 },
+      { kind: "component", name: "Miner + Impure", component: MinerOnImpure, scale: 0.85 },
+      { kind: "component", name: "Miner + Normal", component: MinerOnNormal, scale: 0.85 },
+      { kind: "component", name: "Miner + Pure", component: MinerOnPure, scale: 0.85 },
     ],
   },
   {
     label: "Game Models",
     entries: [
-      { kind: "component", name: "Iron Node", component: IronNode },
-      { kind: "component", name: "Copper Node", component: CopperNode },
       { kind: "component", name: "Smelter", component: Smelter },
       { kind: "component", name: "Processor", component: Processor },
       { kind: "component", name: "Burner", component: Burner },
-      { kind: "component", name: "Belt (old)", component: ConveyorBelt },
       { kind: "component", name: "Belt Running", component: BeltStraightRunning },
       { kind: "component", name: "Belt Stopped", component: BeltStraightStopped },
       { kind: "component", name: "Belt Curve", component: BeltCurveDemo },
-      { kind: "component", name: "Belt Chain", component: BeltChainDemo },
+      { kind: "component", name: "Belt Chain 60/min", component: BeltChain60Demo },
+      { kind: "component", name: "Belt Chain 120/min", component: BeltChain120Demo },
+      { kind: "component", name: "Belt Chain 240/min", component: BeltChain240Demo },
       { kind: "component", name: "Storage", component: ModularStorage, scale: 0.8 },
       { kind: "component", name: "Wind Turbine", component: WindTurbine },
       { kind: "component", name: "Rocket", component: Rocket, scale: 0.6 },
@@ -174,41 +420,49 @@ const SECTIONS: Section[] = [
     ],
   },
   {
-    label: "Nature — Trees",
+    label: "Modular Building — Parts",
     entries: [
-      { kind: "component", name: "Oak SM", component: OakTreeSm, scale: 2 },
-      { kind: "component", name: "Oak MD", component: OakTree, scale: 1.5 },
-      { kind: "component", name: "Oak LG", component: OakTreeLg, scale: 1.2 },
-      { kind: "component", name: "Detailed SM", component: DetailedTreeSm, scale: 2 },
-      { kind: "component", name: "Detailed MD", component: DetailedTree, scale: 1.5 },
-      { kind: "component", name: "Detailed LG", component: DetailedTreeLg, scale: 1.2 },
-      { kind: "component", name: "Pine SM", component: PineTreeSm, scale: 2 },
-      { kind: "component", name: "Pine MD", component: PineTree, scale: 1.5 },
-      { kind: "component", name: "Pine LG", component: PineTreeLg, scale: 1.2 },
-      { kind: "component", name: "FlatTop SM", component: FlatTopTreeSm, scale: 2 },
-      { kind: "component", name: "FlatTop MD", component: FlatTopTree, scale: 1.5 },
-      { kind: "component", name: "FlatTop LG", component: FlatTopTreeLg, scale: 1.2 },
+      { kind: "component", name: "Foundation (sm)", component: FoundationSmDemo, scale: 2.5 },
+      { kind: "component", name: "Foundation (md)", component: FoundationMdDemo, scale: 2 },
+      { kind: "component", name: "Body (short)", component: BodyShortDemo, scale: 2.5 },
+      { kind: "component", name: "Body (standard)", component: BodyDemo, scale: 2.5 },
+      { kind: "component", name: "Body (tall)", component: BodyTallDemo, scale: 2 },
+      { kind: "component", name: "Power Unit", component: PowerUnitDemo, scale: 4 },
+      { kind: "component", name: "Antenna Module", component: AntennaModuleDemo, scale: 4 },
+      { kind: "component", name: "Chimney Stack", component: ChimneyStackDemo, scale: 4 },
+      { kind: "component", name: "Turbine Plate", component: TurbinePlateDemo, scale: 4 },
+      { kind: "component", name: "Drill Head", component: DrillHeadDemo, scale: 3.5 },
+      { kind: "component", name: "Tank Cluster", component: TankClusterDemo, scale: 4 },
+      { kind: "component", name: "Heat Sink Array", component: HeatSinkArrayDemo, scale: 4 },
+      { kind: "component", name: "Sorting Frame", component: SortingFrameDemo, scale: 4 },
+      { kind: "component", name: "Side Tank", component: SideTankDemo, scale: 8 },
+      { kind: "component", name: "Side Vent", component: SideVentDemo, scale: 10 },
+      { kind: "component", name: "Side Pipe", component: SidePipeDemo, scale: 8 },
+      { kind: "component", name: "Side Panel", component: SidePanelDemo, scale: 10 },
+      { kind: "component", name: "Side Lamp", component: SideLampDemo, scale: 12 },
     ],
   },
   {
-    label: "Nature — Ground",
+    label: "Modular Building — Examples",
     entries: [
-      { kind: "component", name: "Bush", component: Bush, scale: 2.5 },
-      { kind: "component", name: "Flower (Purple)", component: FlowerPurple, scale: 3 },
-      { kind: "component", name: "Flower (Red)", component: FlowerRed, scale: 3 },
-      { kind: "component", name: "Flower (Yellow)", component: FlowerYellow, scale: 3 },
-      { kind: "component", name: "Grass Clump", component: GrassClump, scale: 3 },
-      { kind: "component", name: "Rock", component: Rock, scale: 2.5 },
-      { kind: "component", name: "Campfire", component: Campfire, scale: 3 },
-      { kind: "component", name: "Tree Stump", component: TreeStump, scale: 3 },
+      { kind: "component", name: "Power Plant", component: BuildingPowerPlant, scale: 1.3 },
+      { kind: "component", name: "Comm Tower", component: BuildingCommTower, scale: 1.3 },
+      { kind: "component", name: "Furnace", component: BuildingFurnace, scale: 1.3 },
+      { kind: "component", name: "Refinery", component: BuildingRefinery, scale: 1.4 },
+      { kind: "component", name: "Generator", component: BuildingGenerator, scale: 1.1 },
+      { kind: "component", name: "Drill Station", component: BuildingDrillStation, scale: 1.0 },
+      { kind: "component", name: "Logistics Hub", component: BuildingLogisticsHub, scale: 1.3 },
+      { kind: "component", name: "Cooling Station", component: BuildingCoolingStation, scale: 1.4 },
     ],
   },
   {
-    label: "GLB References",
+    label: "Building Presets",
     entries: [
-      { kind: "gltf", name: "Miner (glb)", path: "/models/miner.glb" },
-      { kind: "gltf", name: "Burner (glb)", path: "/models/burner.glb" },
-      { kind: "gltf", name: "Coal Power (glb)", path: "/models/coal-power.glb" },
+      { kind: "component", name: "Biomass Burner", component: BiomassBurner, scale: 1.3 },
+      { kind: "component", name: "Ore Smelter", component: OreSmelter, scale: 1.1 },
+      { kind: "component", name: "Processor Unit", component: ProcessorUnit, scale: 1.3 },
+      { kind: "component", name: "Container Storage", component: ContainerStorage, scale: 1.3 },
+      { kind: "component", name: "Personal Box", component: PersonalBox, scale: 3 },
     ],
   },
 ];
@@ -244,170 +498,6 @@ const sectionLabelStyle: React.CSSProperties = {
   textShadow: "0 1px 6px rgba(0,0,0,0.9)",
 };
 
-/* ── Auto-scale: measures after mount, then applies ────────── */
-
-function useAutoScale(ref: React.RefObject<Group | null>, dep: Object3D, targetHeight = TARGET_HEIGHT) {
-  useLayoutEffect(() => {
-    const group = ref.current;
-    if (!group) return;
-
-    // Reset for measurement
-    group.scale.setScalar(1);
-    group.position.set(0, 0, 0);
-    group.updateWorldMatrix(true, true);
-
-    // Compute bounds from raw vertex positions — reliable for skinned meshes
-    // where Box3.setFromObject gives wrong results before skeleton update
-    const box = new Box3();
-    const v = new Vector3();
-    group.traverse((child: any) => {
-      if (!child.isMesh || !child.geometry) return;
-      const pos = child.geometry.getAttribute("position");
-      if (!pos) return;
-      for (let i = 0; i < pos.count; i++) {
-        v.set(pos.getX(i), pos.getY(i), pos.getZ(i));
-        v.applyMatrix4(child.matrixWorld);
-        box.expandByPoint(v);
-      }
-    });
-
-    if (box.isEmpty()) return;
-    const size = new Vector3();
-    box.getSize(size);
-    if (size.y < 0.001) return;
-
-    const s = targetHeight / size.y;
-    group.scale.setScalar(s);
-    group.position.y = -box.min.y * s;
-  }, [dep, targetHeight]);
-}
-
-/* ── GLTF model: SkeletonUtils.clone for skinned meshes ──── */
-
-function GltfModel({
-  path,
-  targetHeight,
-  animate,
-  roam,
-}: {
-  path: string;
-  targetHeight?: number;
-  animate?: string | string[];
-  roam?: boolean;
-}) {
-  const { scene, animations } = useGLTF(path);
-  const groupRef = useRef<Group>(null);
-  const mixerRef = useRef<AnimationMixer | null>(null);
-
-  const cloned = useMemo(() => {
-    const c = skeletonClone(scene) as Group;
-    const toRemove: Object3D[] = [];
-    c.traverse((child) => {
-      if (child.name === "Pistol") toRemove.push(child);
-    });
-    for (const obj of toRemove) obj.removeFromParent();
-    return c;
-  }, [scene]);
-  useAutoScale(groupRef, cloned, targetHeight);
-
-  // Animation setup — supports single loop or ordered sequence with crossfade
-  const prevActionRef = useRef<AnimationAction | null>(null);
-  const CROSSFADE = 0.25;
-
-  useEffect(() => {
-    if (!animate || animations.length === 0) return;
-
-    const mixer = new AnimationMixer(cloned);
-    mixerRef.current = mixer;
-
-    const names = Array.isArray(animate) ? animate : [animate];
-    let onFinished: (() => void) | null = null;
-
-    if (names.length === 1) {
-      const clip = animations.find((a) => a.name === names[0]);
-      if (clip) {
-        const action = mixer.clipAction(clip);
-        action.play();
-        prevActionRef.current = action;
-      }
-    } else {
-      let idx = 0;
-      const playAt = (i: number) => {
-        const clip = animations.find((a) => a.name === names[i]);
-        if (!clip) return;
-        const action = mixer.clipAction(clip);
-        action.reset();
-        action.setLoop(LoopOnce, 1);
-        action.clampWhenFinished = false;
-        if (prevActionRef.current && prevActionRef.current !== action) {
-          action.crossFadeFrom(prevActionRef.current, CROSSFADE, true);
-        }
-        action.play();
-        prevActionRef.current = action;
-      };
-      onFinished = () => {
-        idx = (idx + 1) % names.length;
-        playAt(idx);
-      };
-      mixer.addEventListener("finished", onFinished);
-      playAt(0);
-    }
-
-    return () => {
-      if (onFinished) mixer.removeEventListener("finished", onFinished);
-      mixer.stopAllAction();
-      prevActionRef.current = null;
-      mixerRef.current = null;
-    };
-  }, [cloned, animations, animate]);
-
-  // Roaming state — smooth random walk within pedestal bounds
-  const roamState = useRef({ tx: 0, tz: 0, cx: 0, cz: 0, targetRot: 0 });
-
-  useFrame((_, delta) => {
-    mixerRef.current?.update(delta);
-
-    if (!roam || !groupRef.current) return;
-    const st = roamState.current;
-    const RADIUS = 0.5;
-    const SPEED = 0.35;
-    const ROT_SPEED = 8; // radians/sec damping factor
-    const dx = st.tx - st.cx;
-    const dz = st.tz - st.cz;
-    const dist = Math.sqrt(dx * dx + dz * dz);
-
-    if (dist < 0.05) {
-      const a = Math.random() * Math.PI * 2;
-      const r = Math.random() * RADIUS;
-      st.tx = Math.cos(a) * r;
-      st.tz = Math.sin(a) * r;
-    } else {
-      const step = Math.min(SPEED * delta, dist);
-      st.cx += (dx / dist) * step;
-      st.cz += (dz / dist) * step;
-      st.targetRot = Math.atan2(dx, dz);
-    }
-
-    // Smooth rotation — lerp via shortest arc
-    let diff = st.targetRot - cloned.rotation.y;
-    if (diff > Math.PI) diff -= Math.PI * 2;
-    if (diff < -Math.PI) diff += Math.PI * 2;
-    cloned.rotation.y += diff * MathUtils.clamp(ROT_SPEED * delta, 0, 1);
-
-    const s = groupRef.current.scale.x;
-    if (s > 0) {
-      cloned.position.x = st.cx / s;
-      cloned.position.z = st.cz / s;
-    }
-  });
-
-  return (
-    <group ref={groupRef}>
-      <primitive object={cloned} />
-    </group>
-  );
-}
-
 /* ── Component model (procedural geometry) ─────────────────── */
 
 function ComponentModel({ entry }: { entry: ComponentEntry }) {
@@ -438,9 +528,12 @@ function Slot({ x, z, entry }: { x: number; z: number; entry: Entry }) {
       <group position={[0, 0.15, 0]}>
         <Suspense fallback={null}>
           {entry.kind === "character" ? (
-            <Character name={entry.characterName} targetHeight={entry.targetHeight} animation={entry.animate} roam={entry.roam} />
-          ) : entry.kind === "gltf" ? (
-            <GltfModel path={entry.path} targetHeight={entry.targetHeight} animate={entry.animate} roam={entry.roam} />
+            <Character
+              name={entry.characterName}
+              targetHeight={entry.targetHeight}
+              animation={entry.animate}
+              roam={entry.roam}
+            />
           ) : (
             <ComponentModel entry={entry} />
           )}
@@ -453,7 +546,10 @@ function Slot({ x, z, entry }: { x: number; z: number; entry: Entry }) {
 /* ── Main viewer ───────────────────────────────────────────── */
 
 export function CharacterViewer() {
-  const items: ({ type: "section"; label: string; row: number } | { type: "entry"; entry: Entry; col: number; row: number })[] = [];
+  const items: (
+    | { type: "section"; label: string; row: number }
+    | { type: "entry"; entry: Entry; col: number; row: number }
+  )[] = [];
   let currentRow = 0;
 
   for (const section of SECTIONS) {
@@ -471,7 +567,10 @@ export function CharacterViewer() {
 
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[((COLS - 1) * SPACING) / 2, -0.01, (totalRows * SPACING) / 2]}>
+      <mesh
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[((COLS - 1) * SPACING) / 2, -0.01, (totalRows * SPACING) / 2]}
+      >
         <planeGeometry args={[COLS * SPACING + 4, totalRows * SPACING + 4]} />
         <meshStandardMaterial color={COLORS.ground} roughness={0.85} />
       </mesh>

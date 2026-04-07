@@ -10,9 +10,11 @@ import { MinerTop } from "./MinerTop";
 
 type MinerProps = ModelProps & {
   status?: StatusPoleStatus;
+  /** Extra height to raise the chassis so grinder clears a resource node. */
+  nodeHeight?: number;
 };
 
-export function Miner({ status = "green", ...props }: MinerProps) {
+export function Miner({ status = "green", nodeHeight = 0, ...props }: MinerProps) {
   const chassisRef = useRef<Group>(null);
   const registryRef = useRef<AtomRegistry.AtomRegistry | null>(null);
 
@@ -38,8 +40,8 @@ export function Miner({ status = "green", ...props }: MinerProps) {
   return (
     <group {...props}>
       <group ref={chassisRef}>
-        <group position={[0, 0.42, 0]}>
-          <MinerFoundation registry={registry} />
+        <group position={[0, 0.42 + nodeHeight, 0]}>
+          <MinerFoundation registry={registry} groundDistance={0.42 + nodeHeight} />
           <MinerTop position={[0, 0.105, 0]} status={status} />
         </group>
       </group>

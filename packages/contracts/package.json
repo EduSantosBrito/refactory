@@ -6,6 +6,8 @@
     ".": "./src/index.ts",
     "./api": "./src/api.ts",
     "./auth": "./src/auth.ts",
+    "./commands": "./src/commands.ts",
+    "./runtime": "./src/runtime.ts",
     "./worlds": "./src/worlds.ts"
   },
   "scripts": {

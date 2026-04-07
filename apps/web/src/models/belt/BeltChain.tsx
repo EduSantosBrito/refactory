@@ -4,11 +4,13 @@ import type { Group } from "three";
 import {
   BELT_TILE,
   BELT_SPEED,
+  DEFAULT_BELT_RATE_PER_MINUTE,
   CURVE_PIVOT_X,
   CURVE_PIVOT_Z,
   CURVE_CENTER_R,
   ARC_START,
   ARC_END,
+  resolveBeltSpeed,
 } from "./constants";
 import { BeltSegment } from "./BeltSegment";
 import { BeltCurve } from "./BeltCurve";
@@ -64,10 +66,7 @@ function getSegmentLocalPosition(type: BeltSegmentType, t: number): ChainPositio
  *   x' = x·cos(θ) + z·sin(θ)
  *   z' = -x·sin(θ) + z·cos(θ)
  */
-function localToWorld(
-  local: ChainPosition,
-  seg: ChainSegment,
-): ChainPosition {
+function localToWorld(local: ChainPosition, seg: ChainSegment): ChainPosition {
   const cos = Math.cos(seg.rotationY);
   const sin = Math.sin(seg.rotationY);
 
@@ -95,9 +94,8 @@ function getChainPosition(
     const segEnd = segStart + seg.pathLength;
 
     if (distance <= segEnd || i === segments.length - 1) {
-      const localT = seg.pathLength > 0
-        ? Math.max(0, Math.min(1, (distance - segStart) / seg.pathLength))
-        : 0;
+      const localT =
+        seg.pathLength > 0 ? Math.max(0, Math.min(1, (distance - segStart) / seg.pathLength)) : 0;
       const localPos = getSegmentLocalPosition(seg.type, localT);
       return localToWorld(localPos, seg);
     }
@@ -131,14 +129,7 @@ interface ChainItemRendererProps {
   loop: boolean;
 }
 
-function ChainItemRenderer({
-  item,
-  segments,
-  path,
-  power,
-  speed,
-  loop,
-}: ChainItemRendererProps) {
+function ChainItemRenderer({ item, segments, path, power, speed, loop }: ChainItemRendererProps) {
   const groupRef = useRef<Group>(null);
   const progressRef = useRef(clampProgress(item.progress));
   const heightOffset = item.heightOffset ?? 0.12;
@@ -198,6 +189,8 @@ export interface BeltChainProps extends ModelProps {
   power?: BeltPowerState;
   /** Content state for all segments */
   content?: BeltContentState;
+  /** Target throughput in whole items per minute */
+  ratePerMinute?: number;
   /** Belt speed in world-units per second */
   speed?: number;
   /** Wrap items around when they reach the end (demo mode) */
@@ -236,11 +229,22 @@ export function BeltChain({
   items = [],
   power = "running",
   content = "empty",
-  speed = BELT_SPEED,
+  ratePerMinute = DEFAULT_BELT_RATE_PER_MINUTE,
+  speed,
   loop = false,
   ...props
 }: BeltChainProps) {
   const path = useMemo(() => computeChainPath(segments), [segments]);
+  const beltSpeed = useMemo(
+    () =>
+      resolveBeltSpeed({
+        ratePerMinute,
+        speed,
+        pathLength: loop ? path.totalLength : undefined,
+        itemCount: loop ? items.length : undefined,
+      }) ?? BELT_SPEED,
+    [items.length, loop, path.totalLength, ratePerMinute, speed],
+  );
 
   return (
     <group {...props}>
@@ -254,7 +258,8 @@ export function BeltChain({
             rotation={[0, seg.rotationY, 0]}
             power={power}
             content={content}
-            speed={speed}
+            ratePerMinute={ratePerMinute}
+            speed={beltSpeed}
           />
         );
       })}
@@ -268,7 +273,7 @@ export function BeltChain({
             segments={segments}
             path={path}
             power={power}
-            speed={speed}
+            speed={beltSpeed}
             loop={loop}
           />
         ))}

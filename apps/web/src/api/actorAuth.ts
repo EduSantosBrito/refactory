@@ -181,6 +181,17 @@ const updateStoredDisplayName = (stored: StoredActorMaterial, displayName: strin
   displayName,
 });
 
+/**
+ * Load the browser actor identity or create one if none exists yet.
+ *
+ * @remarks
+ * Signed world endpoints require a durable actor keypair, but callers should not need to care whether they are resuming an existing identity or bootstrapping a new one.
+ *
+ * This reads actor material from `localStorage`, decodes and imports it when present, or generates a fresh Ed25519 keypair and persists it when absent.
+ *
+ * @param options - The display name to associate with the local actor and an optional storage key override.
+ * @returns An `Effect` that yields the usable actor credentials.
+ */
 export const getOrCreateActorCredentials = Effect.fnUntraced(function*(options: {
   readonly displayName: string;
   readonly storageKey?: string;
@@ -204,6 +215,17 @@ export const getOrCreateActorCredentials = Effect.fnUntraced(function*(options: 
   return yield* importActorKeyPair(normalized);
 });
 
+/**
+ * Produce the signed actor headers expected by the backend auth middleware.
+ *
+ * @remarks
+ * Request signing is part of the wire contract for protected endpoints, so the canonical payload and header set should live in one place.
+ *
+ * This builds the signing payload from method, path/query, timestamp, and display name, signs it with the actor's Ed25519 private key, and returns the `x-refactory-*` headers.
+ *
+ * @param options - The actor credentials plus the request method and canonical path/query string to sign.
+ * @returns An `Effect` that yields the signed actor headers.
+ */
 export const makeSignedActorHeaders = Effect.fnUntraced(function*(options: {
   readonly actor: ActorCredentials;
   readonly method: string;

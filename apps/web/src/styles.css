@@ -18,6 +18,13 @@ body {
   overflow: hidden;
 }
 
+.space-pan-mode,
+.space-pan-mode * {
+  cursor:
+    url("/kits/cursors/hand_small_closed.svg") 10 10,
+    grab;
+}
+
 button,
 a,
 [role="button"] {
@@ -175,40 +182,448 @@ a,
 }
 
 .play-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.65rem;
-  min-height: 3rem;
+  position: relative;
+  display: block;
+  min-height: 4.2rem;
   border: 0;
-  padding: 0 1.3rem;
-  background: url("/kits/ui/button_rectangle_depth_gradient.svg") center / 100% 100% no-repeat;
-  color: #1a2b38;
+  padding: 0.22rem 0.22rem 0.4rem;
+  border-radius: 0.6rem;
+  background: linear-gradient(180deg, #244766 0%, #244766 74%, #16344b 74%, #16344b 100%);
+  color: #13283b;
   font: inherit;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   font-weight: 900;
   letter-spacing: 0.02em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.3);
+  box-shadow:
+    0 0 0 1px rgba(26, 54, 78, 0.2),
+    0 0.5rem 1rem rgba(15, 35, 54, 0.08);
   transition:
     transform 120ms ease,
-    filter 120ms ease;
+    filter 120ms ease,
+    box-shadow 120ms ease;
 }
 
 .play-button:hover {
   transform: translateY(-2px);
-  filter: brightness(1.03) saturate(1.04);
+  filter: brightness(1.015) saturate(1.02);
+  box-shadow:
+    0 0 0 1px rgba(26, 54, 78, 0.24),
+    0 0.75rem 1.35rem rgba(15, 35, 54, 0.12);
 }
 
 .play-button:active {
   transform: translateY(1px);
 }
 
-.play-button-icon {
-  width: 0.85rem;
-  height: 0.85rem;
+.play-button-face {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  min-height: 3.45rem;
+  padding: 0 1.25rem;
+  border-radius: 0.45rem;
+  box-sizing: border-box;
+}
+
+.play-button-primary .play-button-face {
+  border: 3px solid #d79a00;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 26%),
+    linear-gradient(180deg, #ffeeb0 0%, #ffe168 48%, #ffd12b 100%);
+  box-shadow:
+    inset 0 0 0 4px #ffef9f,
+    inset 0 -2px 0 rgba(190, 122, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.play-button-caret {
+  width: 0;
+  height: 0;
+  border-top: 0.6rem solid transparent;
+  border-bottom: 0.6rem solid transparent;
+  border-left: 0.95rem solid #07111a;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.2));
 }
 
 .play-button:focus-visible {
   outline: 2px solid #173b55;
   outline-offset: 3px;
+}
+
+.pause-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(27, 45, 62, 0.3);
+  backdrop-filter: blur(14px) saturate(1.08);
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+}
+
+.pause-modal {
+  width: min(32rem, calc(100vw - 2rem));
+  padding: 1.35rem 1.35rem 1.2rem;
+  border: 1px solid rgba(116, 125, 149, 0.35);
+  border-radius: 1rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 248, 255, 0.94)),
+    url("/kits/ui/input_rectangle.svg") center / 100% 100% no-repeat;
+  box-shadow:
+    0 1.2rem 3.6rem rgba(14, 31, 43, 0.22),
+    0 0.35rem 1rem rgba(14, 31, 43, 0.12);
+  text-align: center;
+}
+
+.pause-kicker,
+.pause-copy,
+.pause-hint {
+  margin: 0;
+}
+
+.pause-kicker {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #6a7d93;
+}
+
+.pause-title {
+  margin: 0.45rem 0 0;
+  font-size: clamp(1.75rem, 4vw, 2.35rem);
+  line-height: 1;
+  color: #173b55;
+}
+
+.pause-divider {
+  width: min(10rem, 48%);
+  height: 0.625rem;
+  margin: 0.8rem auto 0;
+  background: url("/kits/ui/divider_edges.svg") center / 100% 100% no-repeat;
+}
+
+.pause-copy {
+  margin-top: 0.95rem;
+  color: #4f647b;
+  font-size: 0.94rem;
+  line-height: 1.5;
+}
+
+.audio-settings-panel {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 1rem;
+  padding: 0.95rem 1rem;
+  border-radius: 0.9rem;
+  background: linear-gradient(180deg, rgba(226, 232, 244, 0.9), rgba(214, 222, 238, 0.75));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 0 rgba(126, 142, 171, 0.18);
+}
+
+.slider-control {
+  display: grid;
+  gap: 0.38rem;
+}
+
+.slider-control-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.slider-control-label,
+.slider-control-value {
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.slider-control-label {
+  color: #5c6f89;
+}
+
+.slider-control-value {
+  color: #1d6f99;
+}
+
+.slider-shell {
+  position: relative;
+  height: 1.9rem;
+  display: flex;
+  align-items: center;
+}
+
+.slider-shell:focus-within {
+  outline: 2px solid #173b55;
+  outline-offset: 2px;
+  border-radius: 999px;
+}
+
+.slider-track {
+  position: absolute;
+  right: 0.25rem;
+  left: 0.25rem;
+  height: 0.7rem;
+  overflow: hidden;
+  border: 2px solid #3994c0;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #fefefe 0%, #f1f5fb 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.slider-track-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #74d9fa 0%, #39ace0 100%);
+  box-shadow: inset 0 -1px 0 rgba(17, 104, 142, 0.35);
+}
+
+.slider-thumb {
+  position: absolute;
+  top: 0.1rem;
+  width: 1.15rem;
+  height: 1.45rem;
+  transform: translateX(-50%);
+  border: 2px solid #2991bf;
+  border-radius: 0.3rem;
+  background: linear-gradient(180deg, #52c9f4 0%, #2ca7dc 100%);
+  clip-path: polygon(50% 0%, 88% 28%, 88% 100%, 12% 100%, 12% 28%);
+  box-shadow:
+    0 2px 0 #1e759f,
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  pointer-events: none;
+}
+
+.slider-input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+}
+
+.pause-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1.15rem;
+}
+
+.pause-actions .play-button {
+  width: 100%;
+}
+
+.secondary-button {
+  padding: 0.28rem 0.42rem 0.45rem;
+  border-radius: 0.8rem;
+  background: linear-gradient(180deg, #9c9cad 0%, #8e8e9e 70%, #6d6d80 100%);
+}
+
+.secondary-button .play-button-face {
+  border: 5px solid #c7c8d5;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 28%),
+    linear-gradient(180deg, #dbdde8 0%, #cfd2df 100%);
+  box-shadow:
+    inset 0 0 0 4px #ffc800,
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.pause-hint {
+  margin-top: 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7d8fa3;
+}
+
+/* ── Chat bubble (above character) ─────────────────────────── */
+
+.chat-bubble {
+  position: relative;
+  padding: 4px 10px 5px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1.5px solid rgba(116, 146, 170, 0.3);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  animation: chat-bubble-pop 0.2s ease-out;
+}
+
+@font-face {
+  font-family: "Kenney Future";
+  src: url("/kits/fonts/KenneyFuture.ttf") format("truetype");
+  font-display: swap;
+}
+
+.chat-bubble-text {
+  font-family: "Kenney Future", system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 400;
+  color: #1d3552;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.chat-bubble-tail {
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid rgba(255, 255, 255, 0.92);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.08));
+}
+
+@keyframes chat-bubble-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.7) translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* ── Chatbox ──────────────────────────────────────────────── */
+
+.chatbox {
+  position: fixed;
+  bottom: 1rem;
+  left: 1rem;
+  z-index: 6;
+  width: min(20rem, calc(100vw - 2rem));
+  border-radius: 0.85rem;
+  overflow: hidden;
+  border: 1px solid rgba(116, 146, 170, 0.35);
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 0.5rem 2rem rgba(21, 76, 92, 0.14);
+  font-size: 0.82rem;
+}
+
+.chatbox-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.45rem 0.85rem;
+  border: 0;
+  background: linear-gradient(180deg, rgba(226, 232, 244, 0.95), rgba(214, 222, 238, 0.8));
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #5c6f89;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 0 rgba(126, 142, 171, 0.18);
+  text-align: left;
+}
+
+.chatbox-toggle-arrow {
+  font-size: 0.65rem;
+  line-height: 1;
+}
+
+.chatbox-messages {
+  max-height: 11rem;
+  overflow-y: auto;
+  padding: 0.45rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.chatbox-messages::-webkit-scrollbar {
+  width: 4px;
+}
+
+.chatbox-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chatbox-messages::-webkit-scrollbar-thumb {
+  background: rgba(116, 146, 170, 0.3);
+  border-radius: 2px;
+}
+
+.chatbox-empty {
+  margin: 0;
+  padding: 0.5rem 0;
+  color: #8a97a6;
+  font-size: 0.75rem;
+  font-style: italic;
+  text-align: center;
+}
+
+.chatbox-msg p {
+  margin: 0;
+  line-height: 1.45;
+  word-break: break-word;
+  color: #2e4a64;
+}
+
+.chatbox-name {
+  font-weight: 900;
+}
+
+.chatbox-wave-verb {
+  font-style: italic;
+  color: #6a7d93;
+}
+
+.chatbox-quip {
+  font-style: italic;
+  color: #8a97a6;
+  font-size: 0.75rem;
+}
+
+.chatbox-form {
+  padding: 0.35rem 0.45rem 0.45rem;
+  border-top: 1px solid rgba(116, 146, 170, 0.18);
+}
+
+.chatbox-input {
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  border: 2px solid rgba(57, 148, 192, 0.6);
+  border-radius: 0.4rem;
+  background: linear-gradient(180deg, #fefefe 0%, #f4f7fc 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 1px 0 rgba(255, 255, 255, 0.6);
+  font: inherit;
+  font-size: 0.8rem;
+  color: #1d3552;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.chatbox-input::placeholder {
+  color: #9aa8b8;
+  font-style: italic;
+}
+
+.chatbox-input:focus {
+  border-color: #1c9fd7;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 0 0 3px rgba(54, 189, 247, 0.18);
 }
 
 @media (max-width: 640px) {
@@ -230,5 +645,19 @@ a,
   .tagline,
   .status {
     font-size: 0.95rem;
+  }
+
+  .pause-modal {
+    padding: 1.1rem 1rem 1rem;
+  }
+
+  .audio-settings-panel {
+    padding: 0.85rem 0.8rem;
+  }
+
+  .chatbox {
+    bottom: 0.75rem;
+    left: 0.75rem;
+    width: min(100%, calc(100vw - 1.5rem));
   }
 }

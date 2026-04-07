@@ -1,14 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
-import { useGLTF } from "@react-three/drei";
+import { Billboard, Html, Text, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import {
-  AnimationMixer,
-  Box3,
-  LoopOnce,
-  MathUtils,
-  Mesh,
-  Vector3,
-} from "three";
+import { AnimationMixer, Box3, LoopOnce, MathUtils, Mesh, Vector3 } from "three";
 import type { AnimationAction, Group, Object3D } from "three";
 import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.js";
 
@@ -43,15 +36,25 @@ function enableShadows(object: Object3D) {
 interface CharacterProps {
   name: CharacterName;
   animation?: string | string[];
+  animationSpeed?: number;
   targetHeight?: number;
   roam?: boolean;
+  label?: string;
+  labelColor?: string;
+  chatBubble?: string | null;
+  onAnimationComplete?: () => void;
 }
 
 export function Character({
   name,
   animation = "Idle",
+  animationSpeed = 1,
   targetHeight = 1.55,
   roam = false,
+  label,
+  labelColor,
+  chatBubble,
+  onAnimationComplete,
 }: CharacterProps) {
   const path = CHARACTER_MODELS[name];
   const groupRef = useRef<Group>(null);
@@ -113,6 +116,13 @@ export function Character({
       const clip = animations.find((a) => a.name === names[0]);
       if (clip) {
         const action = mixer.clipAction(clip);
+        action.timeScale = animationSpeed;
+        if (onAnimationComplete) {
+          action.setLoop(LoopOnce, 1);
+          action.clampWhenFinished = true;
+          onFinished = () => onAnimationComplete();
+          mixer.addEventListener("finished", onFinished);
+        }
         action.play();
         prevActionRef.current = action;
       }
@@ -123,6 +133,7 @@ export function Character({
         if (!clip) return;
         const action = mixer.clipAction(clip);
         action.reset();
+        action.timeScale = animationSpeed;
         action.setLoop(LoopOnce, 1);
         action.clampWhenFinished = false;
         if (prevActionRef.current && prevActionRef.current !== action) {
@@ -145,7 +156,7 @@ export function Character({
       prevActionRef.current = null;
       mixerRef.current = null;
     };
-  }, [actor, animations, animation]);
+  }, [actor, animations, animation, animationSpeed, onAnimationComplete]);
 
   // Roaming + mixer update
   const roamState = useRef({ tx: 0, tz: 0, cx: 0, cz: 0, targetRot: 0 });
@@ -179,17 +190,51 @@ export function Character({
     if (diff < -Math.PI) diff += Math.PI * 2;
     actor.rotation.y += diff * MathUtils.clamp(ROT_SPEED * delta, 0, 1);
 
-    const s = groupRef.current.scale.x;
-    if (s > 0) {
-      actor.position.x = st.cx / s;
-      actor.position.z = st.cz / s;
-    }
+    groupRef.current.position.x = st.cx;
+    groupRef.current.position.z = st.cz;
   });
 
   return (
-    <group ref={groupRef}>
-      <primitive object={actor} />
-    </group>
+    <>
+      <group ref={groupRef}>
+        <primitive object={actor} />
+      </group>
+      {chatBubble ? (
+        <Html
+          position={[0, targetHeight + 0.55, 0]}
+          center
+          zIndexRange={[2, 1]}
+          style={{ pointerEvents: "none", whiteSpace: "nowrap" }}
+        >
+          <div className="chat-bubble">
+            <span className="chat-bubble-text">{chatBubble}</span>
+            <div className="chat-bubble-tail" />
+          </div>
+        </Html>
+      ) : null}
+      {label ? (
+        <Billboard position={[0, targetHeight + 0.15, 0]}>
+          {/* Color dot */}
+          <mesh position={[-(label.length * 0.038 + 0.06), 0.008, 0.001]}>
+            <circleGeometry args={[0.028, 16]} />
+            <meshBasicMaterial color={labelColor ?? "#ffffff"} depthWrite={false} transparent />
+          </mesh>
+          <Text
+            fontSize={0.12}
+            color="#ffffff"
+            anchorX="center"
+            anchorY="middle"
+            font="/kits/fonts/KenneyFuture.ttf"
+            outlineWidth={0.014}
+            outlineColor="#000000"
+            outlineOpacity={0.65}
+            depthOffset={-1}
+          >
+            {`  ${label}`}
+          </Text>
+        </Billboard>
+      ) : null}
+    </>
   );
 }
 

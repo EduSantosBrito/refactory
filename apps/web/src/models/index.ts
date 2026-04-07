@@ -1,21 +1,9 @@
 export { PlayerAvatar } from "./PlayerAvatar";
-export { IronNode } from "./IronNode";
-export { CopperNode } from "./CopperNode";
+export { ResourceNode } from "./ResourceNode";
+export type { ResourceType, PurityTier, ResourceNodeProps } from "./ResourceNode";
+export { NODE_MINER_OFFSET } from "./ResourceNode";
 export { Smelter } from "./Smelter";
 export { Processor } from "./Processor";
-export { ConveyorBelt, ConveyorBeltLane } from "./ConveyorBelt";
-export type {
-  BeltContent,
-  BeltState,
-  BeltVariant,
-  ConveyorBeltLaneProps,
-  ConveyorBeltProps,
-  ConveyorLaneItem,
-  ConveyorLaneSegment,
-} from "./ConveyorBelt";
-export { BELT_TILE } from "./ConveyorBelt";
-export { ConveyorBeltCurved } from "./ConveyorBeltCurved";
-export type { ConveyorBeltCurvedProps } from "./ConveyorBeltCurved";
 
 /* ── New modular belt system ─────────────────────────────── */
 export {
@@ -56,15 +44,21 @@ export { MinerFoundation } from "./MinerFoundation";
 export { Miner } from "./Miner";
 export { Rocket } from "./Rocket";
 export { Antenna } from "./Antenna";
+export { ModularBuilding } from "./building";
+export type { TopModuleType, SideAttachmentDef, ModularBuildingProps, BodyHeight } from "./building";
+export { BiomassBurner, OreSmelter, ProcessorUnit, ContainerStorage, PersonalBox } from "./building";
 export {
   OakTree,
   DetailedTree,
   PineTree,
   FlatTopTree,
+  DeadTree,
   Flower,
   Bush,
   GrassClump,
   Rock,
-  Campfire,
-  TreeStump,
+  RockFormation,
+  Stump,
+  Log,
+  Mushroom,
 } from "./nature";

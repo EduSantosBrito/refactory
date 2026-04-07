@@ -1,8 +1,46 @@
 /** Belt tile dimensions — 1×1 footprint on XZ, 0.4 tall */
 export const BELT_TILE = { width: 1, depth: 1, height: 0.4 } as const;
 
+/** Default belt throughput for a normal-rate line */
+export const DEFAULT_BELT_RATE_PER_MINUTE = 60;
+
+/** Nominal item spacing used when a loop/item count is unknown */
+export const BELT_TARGET_ITEM_SPACING = 0.8;
+
 /** Belt speed in world-units per second */
-export const BELT_SPEED = 0.8;
+export const BELT_SPEED = (DEFAULT_BELT_RATE_PER_MINUTE * BELT_TARGET_ITEM_SPACING) / 60;
+
+export interface ResolveBeltSpeedOptions {
+  ratePerMinute?: number;
+  speed?: number;
+  pathLength?: number;
+  itemCount?: number;
+}
+
+export function getBeltLoopItemCount(pathLength: number) {
+  if (pathLength <= 0) {
+    return 1;
+  }
+
+  return Math.max(1, Math.round(pathLength / BELT_TARGET_ITEM_SPACING));
+}
+
+export function resolveBeltSpeed({
+  ratePerMinute = DEFAULT_BELT_RATE_PER_MINUTE,
+  speed,
+  pathLength,
+  itemCount,
+}: ResolveBeltSpeedOptions) {
+  if (speed !== undefined) {
+    return speed;
+  }
+
+  if (pathLength !== undefined && itemCount !== undefined && pathLength > 0 && itemCount > 0) {
+    return (ratePerMinute * pathLength) / (itemCount * 60);
+  }
+
+  return (ratePerMinute * BELT_TARGET_ITEM_SPACING) / 60;
+}
 
 /* ── Width dimensions (Z axis, belt travels along X) ─────── */
 
@@ -25,8 +63,11 @@ export const BASE_EXTEND = 0.04;
 export const BASE_W = FRAME_W + BASE_EXTEND * 2; // 0.85
 export const BASE_H = 0.05;
 
-/** Accent stripe height from ground */
-export const ACCENT_Y = BASE_H + 0.008;
+/**
+ * Accent stripe height from ground.
+ * Keep a bit more clearance above the base plate to avoid depth flicker.
+ */
+export const ACCENT_Y = BASE_H + 0.01;
 
 /* ── Belt surface groove ────────────────────────────────── */
 
@@ -55,6 +96,9 @@ export const CURVE_FRAME_OUTER = CURVE_BELT_OUTER + FRAME_PAD;
 
 /** Arc length along center radius */
 export const CURVE_ARC_LENGTH = CURVE_CENTER_R * (Math.PI / 2);
+
+/** Angular extension past arc boundaries for seamless chain joints */
+export const ARC_EXT = 0.015;
 
 /* ── Color palette ───────────────────────────────────────── */
 

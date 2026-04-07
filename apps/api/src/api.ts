@@ -3,6 +3,7 @@ import { CurrentActor } from "@refactory/contracts/auth";
 import { Effect, Layer } from "effect";
 import { HttpApiBuilder, HttpApiScalar } from "effect/unstable/httpapi";
 import { AppConfig } from "./app-config.ts";
+import { WorldRuntimeService } from "./world-runtime.ts";
 import { WorldService } from "./worlds.ts";
 
 const SystemApiHandlers = HttpApiBuilder.group(
@@ -25,6 +26,7 @@ const WorldsApiHandlers = HttpApiBuilder.group(
   "worlds",
   Effect.fnUntraced(function* (handlers) {
     const worlds = yield* WorldService;
+    const runtime = yield* WorldRuntimeService;
 
     return handlers
       .handle("createWorld", ({ payload }) =>
@@ -43,6 +45,21 @@ const WorldsApiHandlers = HttpApiBuilder.group(
       .handle("getWorld", ({ params }) =>
         Effect.flatMap(CurrentActor.asEffect(), (actor) =>
           Effect.map(worlds.getWorld(actor, params.worldId), (world) => ({ world })),
+        ),
+      )
+      .handle("getWorldRuntime", ({ params }) =>
+        Effect.flatMap(CurrentActor.asEffect(), (actor) =>
+          Effect.map(runtime.getWorldRuntime(actor, params.worldId), (snapshot) => ({ snapshot })),
+        ),
+      )
+      .handle("getWorldRuntimeCheckpoint", ({ params }) =>
+        Effect.flatMap(CurrentActor.asEffect(), (actor) =>
+          Effect.map(runtime.getWorldRuntimeCheckpoint(actor, params.worldId), (checkpoint) => ({ checkpoint })),
+        ),
+      )
+      .handle("submitWorldCommand", ({ params, payload }) =>
+        Effect.flatMap(CurrentActor.asEffect(), (actor) =>
+          Effect.map(runtime.submitWorldCommand(actor, params.worldId, payload.command), (receipt) => ({ receipt })),
         ),
       );
   }),

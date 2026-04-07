@@ -6,15 +6,18 @@ import { AppConfig } from "./app-config.ts";
 import { ActorAuthLive } from "./auth.ts";
 import { ProfileRepository } from "./profiles.ts";
 import { SqliteDatabase } from "./sqlite.ts";
+import { RuntimeCheckpointStore } from "./world-runtime-checkpoints.ts";
+import { WorldRuntimeService } from "./world-runtime.ts";
 import { WorldRepository, WorldService } from "./worlds.ts";
 
-const PersistenceLive = Layer.mergeAll(ProfileRepository.Live, WorldRepository.Live).pipe(
+const PersistenceLive = Layer.mergeAll(ProfileRepository.Live, RuntimeCheckpointStore.Live, WorldRepository.Live).pipe(
   Layer.provide(SqliteDatabase.Live),
 );
 
 const DomainLive = Layer.mergeAll(AppConfig.Live, PersistenceLive);
 
 const WorldServiceLive = WorldService.Live.pipe(Layer.provide(DomainLive));
+const WorldRuntimeLive = WorldRuntimeService.Live.pipe(Layer.provide(PersistenceLive));
 
 const ServerLive = Effect.gen(function* () {
   const config = yield* AppConfig;
@@ -22,7 +25,7 @@ const ServerLive = Effect.gen(function* () {
 
   const server = HttpRouter.serve(routes).pipe(
     Layer.provide(BunHttpServer.layer({ port: config.port })),
-    Layer.provide([AppConfig.Live, PersistenceLive, WorldServiceLive, ActorAuthLive]),
+    Layer.provide([AppConfig.Live, PersistenceLive, WorldRuntimeLive, WorldServiceLive, ActorAuthLive]),
   );
 
   yield* Effect.log(`API listening on http://localhost:${config.port}`);

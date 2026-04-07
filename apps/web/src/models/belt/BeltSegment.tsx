@@ -4,6 +4,7 @@ import { FrontSide, ShaderMaterial, Vector3 } from "three";
 import {
   BELT_TILE,
   BELT_SPEED,
+  DEFAULT_BELT_RATE_PER_MINUTE,
   SURFACE_W,
   SURFACE_HALF_W,
   FRAME_W,
@@ -15,12 +16,16 @@ import {
   GROOVE_DENSITY,
   BELT_COLORS,
   BELT_MAT,
+  resolveBeltSpeed,
 } from "./constants";
 import { grooveVert, grooveFrag, GROOVE_RUNNING, GROOVE_STOPPED } from "./shaders";
 import type { BeltSegmentProps, BeltPort } from "./types";
 
 const H = BELT_TILE.height;
 const LENGTH = 1.0;
+
+/** Geometry extends past tile boundary for seamless chain joints */
+const EXT = LENGTH + 0.02;
 
 /* ── Port definitions for a straight segment ─────────────── */
 
@@ -36,15 +41,17 @@ export const STRAIGHT_PORTS: BeltPort[] = [
  *
  * Items travel along +X (west → east in local space).
  * Aesthetic: flat dark belt surface with scrolling groove lines,
- * orange accent rails, beveled base, end brackets.
+ * orange accent rails, beveled base.
  */
 export function BeltSegment({
   power = "running",
-  content = "empty",
-  speed = BELT_SPEED,
+  content: _content = "empty",
+  ratePerMinute = DEFAULT_BELT_RATE_PER_MINUTE,
+  speed,
   ...props
 }: BeltSegmentProps) {
   const overlayRef = useRef<ShaderMaterial>(null);
+  const beltSpeed = resolveBeltSpeed({ ratePerMinute, speed }) ?? BELT_SPEED;
 
   const running = power === "running";
   const groove = running ? GROOVE_RUNNING : GROOVE_STOPPED;
@@ -62,39 +69,42 @@ export function BeltSegment({
     };
 
     if (running) {
-      u.uTime.value += delta * speed;
+      u.uTime.value += delta * beltSpeed;
     }
 
     u.uOpacity.value += (groove.opacity - u.uOpacity.value) * 0.1;
-    u.uColor.value.lerp(
-      _lerpTarget.set(groove.color[0], groove.color[1], groove.color[2]),
-      0.1,
-    );
+    u.uColor.value.lerp(_lerpTarget.set(groove.color[0], groove.color[1], groove.color[2]), 0.1);
   });
 
   return (
     <group {...props}>
       {/* ── Base plate — wider, grounding ───────────────── */}
       <mesh position={[0, BASE_H / 2, 0]}>
-        <boxGeometry args={[LENGTH, BASE_H, BASE_W]} />
+        <boxGeometry args={[EXT, BASE_H, BASE_W]} />
         <meshStandardMaterial color={BELT_COLORS.base} {...BELT_MAT.base} />
       </mesh>
 
       {/* ── Accent stripe at base ───────────────────────── */}
       <mesh position={[0, ACCENT_Y, 0]}>
-        <boxGeometry args={[LENGTH - 0.04, 0.015, FRAME_W + 0.01]} />
-        <meshStandardMaterial color={BELT_COLORS.accent} {...BELT_MAT.accent} />
+        <boxGeometry args={[EXT, 0.015, FRAME_W + 0.01]} />
+        <meshStandardMaterial
+          color={BELT_COLORS.accent}
+          {...BELT_MAT.accent}
+          polygonOffset
+          polygonOffsetFactor={-1}
+          polygonOffsetUnits={-1}
+        />
       </mesh>
 
       {/* ── Frame body — main structure ──────────────────── */}
-      <mesh position={[0, BASE_H + (H - BASE_H) / 2, 0]}>
-        <boxGeometry args={[LENGTH, H - BASE_H, FRAME_W]} />
+      <mesh position={[0, BASE_H - 0.005 + (H - BASE_H + 0.005) / 2, 0]}>
+        <boxGeometry args={[EXT, H - BASE_H + 0.005, FRAME_W]} />
         <meshStandardMaterial color={BELT_COLORS.frame} {...BELT_MAT.frame} />
       </mesh>
 
-      {/* ── Belt surface — darker top panel ──────────────── */}
-      <mesh position={[0, H - 0.01, 0]}>
-        <boxGeometry args={[LENGTH - 0.02, 0.02, SURFACE_W]} />
+      {/* ── Belt surface — dark plane above frame ────────── */}
+      <mesh position={[0, H + 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[EXT, SURFACE_W]} />
         <meshStandardMaterial
           color={BELT_COLORS.surface}
           {...BELT_MAT.surface}
@@ -106,29 +116,15 @@ export function BeltSegment({
 
       {/* ── Side rails — orange accent edges ────────────── */}
       {([-1, 1] as const).map((side) => (
-        <mesh
-          key={side}
-          position={[0, H + RAIL_H / 2, side * (SURFACE_HALF_W + RAIL_W / 2)]}
-        >
-          <boxGeometry args={[LENGTH - 0.04, RAIL_H, RAIL_W]} />
+        <mesh key={side} position={[0, H + RAIL_H / 2, side * (SURFACE_HALF_W + RAIL_W / 2)]}>
+          <boxGeometry args={[EXT, RAIL_H, RAIL_W]} />
           <meshStandardMaterial color={BELT_COLORS.rail} {...BELT_MAT.rail} />
-        </mesh>
-      ))}
-
-      {/* ── End brackets — chunky joint markers ─────────── */}
-      {([-1, 1] as const).map((side) => (
-        <mesh
-          key={`cap-${side}`}
-          position={[side * 0.485, H * 0.45, 0]}
-        >
-          <boxGeometry args={[0.03, H * 0.65, FRAME_W + 0.02]} />
-          <meshStandardMaterial color={BELT_COLORS.cap} {...BELT_MAT.cap} />
         </mesh>
       ))}
 
       {/* ── Groove overlay — scrolling motion lines ─────── */}
       <mesh position={[0, H + 0.003, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[LENGTH - 0.04, SURFACE_W]} />
+        <planeGeometry args={[EXT, SURFACE_W]} />
         <shaderMaterial
           ref={overlayRef}
           transparent

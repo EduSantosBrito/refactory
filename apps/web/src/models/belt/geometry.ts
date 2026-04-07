@@ -5,12 +5,17 @@ import {
   CURVE_PIVOT_Z,
   ARC_START,
   ARC_END,
+  ARC_EXT,
 } from "./constants";
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
+/** Extended arc range — geometry overshoots tile boundary for seamless joints */
+const EXT_START = ARC_START + ARC_EXT;
+const EXT_END = ARC_END - ARC_EXT;
+
 function angleAt(t: number) {
-  return ARC_START + t * (ARC_END - ARC_START);
+  return EXT_START + t * (EXT_END - EXT_START);
 }
 
 /* ── Arc geometry builders ───────────────────────────────── */

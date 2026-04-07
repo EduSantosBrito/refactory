@@ -62,6 +62,7 @@ export type BeltSegmentType = "straight" | "curve";
 export interface BeltSegmentProps extends ModelProps {
   power?: BeltPowerState;
   content?: BeltContentState;
+  ratePerMinute?: number;
   speed?: number;
 }
 

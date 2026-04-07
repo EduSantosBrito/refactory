@@ -1,16 +1,15 @@
 import {
   PlayerAvatar,
-  IronNode,
-  CopperNode,
-  ConveyorBelt,
-  ConveyorBeltLane,
-  ConveyorBeltCurved,
+  ResourceNode,
+  BeltSegment,
+  BeltCurve,
+  BeltChain,
   ModularStorage,
   Rocket,
   WindTurbine,
-  BELT_TILE,
 } from "../models";
-import type { BeltContent, BeltState, ConveyorLaneItem } from "../models";
+import type { BeltContentState, BeltPowerState, ChainItem, ChainSegment } from "../models";
+import { BELT_TILE, DEFAULT_BELT_RATE_PER_MINUTE, getBeltLoopItemCount } from "../models/belt";
 import { COLORS, MAT, type ModelProps } from "../models/colors";
 
 const StorageRed: React.FC<ModelProps> = (props) => <ModularStorage {...props} status="red" />;
@@ -39,45 +38,65 @@ const SampleOreCargo = ({ color = "#f5d24a" }: { color?: string }) => (
   </mesh>
 );
 
-const laneItems: readonly ConveyorLaneItem[] = [
-  {
-    key: "crate",
-    position: 0.08,
-    node: <SampleBoxCargo color="#e8845a" />,
-  },
-  {
-    key: "barrel",
-    position: 0.38,
-    node: <SampleBarrelCargo color="#5ec4b6" />,
-  },
-  {
-    key: "ore",
-    position: 0.72,
-    node: <SampleOreCargo color="#f5d24a" />,
-  },
-];
+const LANE_RATE_PER_MINUTE = DEFAULT_BELT_RATE_PER_MINUTE;
+const LANE_SEGMENT_COUNT = 4;
+const laneItemCount = getBeltLoopItemCount(LANE_SEGMENT_COUNT);
+
+function getLaneItemNode(index: number) {
+  const kind = index % 3;
+
+  if (kind === 0) {
+    return <SampleBoxCargo color="#e8845a" />;
+  }
+
+  if (kind === 1) {
+    return <SampleBarrelCargo color="#5ec4b6" />;
+  }
+
+  return <SampleOreCargo color="#f5d24a" />;
+}
+
+const laneSegments: readonly ChainSegment[] = Array.from({ length: LANE_SEGMENT_COUNT }, (_, index) => ({
+  key: `lane-segment-${index}`,
+  type: "straight",
+  position: [index - (LANE_SEGMENT_COUNT - 1) / 2, 0, 0],
+  rotationY: 0,
+  pathLength: 1,
+}));
+
+const laneItems: readonly ChainItem[] = Array.from(
+  { length: laneItemCount },
+  (_, index) => ({
+    id: `lane-item-${index}`,
+    progress: index / laneItemCount,
+    node: getLaneItemNode(index),
+  }),
+);
 
 const makeBelt =
-  (state: BeltState, content: BeltContent): React.FC<ModelProps> =>
+  (power: BeltPowerState, content: BeltContentState): React.FC<ModelProps> =>
   (props) => (
-    <ConveyorBelt {...props} state={state} content={content}>
+    <group {...props}>
+      <BeltSegment power={power} content={content} />
       {content === "filled" && (
         <group position={[0, BELT_TILE.height + 0.12, 0]}>
           <SampleBoxCargo />
         </group>
       )}
-    </ConveyorBelt>
+    </group>
   );
 
 const makeBeltLine =
-  (state: BeltState, content: BeltContent, count = 4): React.FC<ModelProps> =>
+  (power: BeltPowerState, content: BeltContentState): React.FC<ModelProps> =>
   (props) => (
-    <ConveyorBeltLane
+    <BeltChain
       {...props}
-      count={count}
-      state={state}
+      segments={[...laneSegments]}
+      power={power}
       content={content}
-      items={content === "filled" ? laneItems : []}
+      ratePerMinute={LANE_RATE_PER_MINUTE}
+      items={content === "filled" ? [...laneItems] : []}
+      loop
     />
   );
 
@@ -90,16 +109,56 @@ interface ShowcaseEntry {
 
 const ENTRIES: ShowcaseEntry[] = [
   { name: "Employee", component: PlayerAvatar, yOffset: 0.12 },
-  { name: "Iron Node", component: IronNode, yOffset: 0.12 },
-  { name: "Copper Node", component: CopperNode, yOffset: 0.12 },
-  { name: "Belt: Empty Work", component: makeBelt("working", "empty"), yOffset: 0.12 },
-  { name: "Belt: Empty Idle", component: makeBelt("idle", "empty"), yOffset: 0.12 },
-  { name: "Belt: Filled Work", component: makeBelt("working", "filled"), yOffset: 0.12 },
-  { name: "Belt: Filled Idle", component: makeBelt("idle", "filled"), yOffset: 0.12 },
-  { name: "Lane: Filled Work", component: makeBeltLine("working", "filled"), yOffset: 0.12, scale: 0.5 },
-  { name: "Lane: Filled Idle", component: makeBeltLine("idle", "filled"), yOffset: 0.12, scale: 0.5 },
-  { name: "Curve: Working", component: (props: ModelProps) => <ConveyorBeltCurved {...props} state="working" />, yOffset: 0.12 },
-  { name: "Curve: Idle", component: (props: ModelProps) => <ConveyorBeltCurved {...props} state="idle" />, yOffset: 0.12 },
+  {
+    name: "Iron Impure",
+    component: (props: ModelProps) => <ResourceNode resource="iron" purity="impure" {...props} />,
+    yOffset: 0.12,
+    scale: 2.5,
+  },
+  {
+    name: "Iron Normal",
+    component: (props: ModelProps) => <ResourceNode resource="iron" purity="normal" {...props} />,
+    yOffset: 0.12,
+    scale: 2.5,
+  },
+  {
+    name: "Iron Pure",
+    component: (props: ModelProps) => <ResourceNode resource="iron" purity="pure" {...props} />,
+    yOffset: 0.12,
+    scale: 2,
+  },
+  {
+    name: "Copper Normal",
+    component: (props: ModelProps) => <ResourceNode resource="copper" purity="normal" {...props} />,
+    yOffset: 0.12,
+    scale: 2.5,
+  },
+  { name: "Belt: Empty Run", component: makeBelt("running", "empty"), yOffset: 0.12 },
+  { name: "Belt: Empty Stop", component: makeBelt("stopped", "empty"), yOffset: 0.12 },
+  { name: "Belt: Filled Run", component: makeBelt("running", "filled"), yOffset: 0.12 },
+  { name: "Belt: Filled Stop", component: makeBelt("stopped", "filled"), yOffset: 0.12 },
+  {
+    name: "Lane: Filled Run",
+    component: makeBeltLine("running", "filled"),
+    yOffset: 0.12,
+    scale: 0.5,
+  },
+  {
+    name: "Lane: Filled Stop",
+    component: makeBeltLine("stopped", "filled"),
+    yOffset: 0.12,
+    scale: 0.5,
+  },
+  {
+    name: "Curve: Running",
+    component: (props: ModelProps) => <BeltCurve {...props} power="running" />,
+    yOffset: 0.12,
+  },
+  {
+    name: "Curve: Stopped",
+    component: (props: ModelProps) => <BeltCurve {...props} power="stopped" />,
+    yOffset: 0.12,
+  },
   { name: "Storage Red", component: StorageRed, yOffset: 0.12, scale: 0.8 },
   { name: "Wind Turbine", component: WindTurbine, yOffset: 0.12 },
   { name: "Wind Turbine Yellow", component: WindTurbineYellow, yOffset: 0.12 },

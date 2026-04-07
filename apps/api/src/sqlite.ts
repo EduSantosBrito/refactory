@@ -40,6 +40,15 @@ CREATE INDEX IF NOT EXISTS idx_worlds_visibility_status ON worlds(visibility, st
 CREATE INDEX IF NOT EXISTS idx_worlds_updated_at ON worlds(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_worlds_host_listing ON worlds(host_public_key, updated_at DESC, world_id DESC);
 CREATE INDEX IF NOT EXISTS idx_worlds_public_listing ON worlds(visibility, status, updated_at DESC, world_id DESC);
+
+CREATE TABLE IF NOT EXISTS world_runtime_checkpoints (
+  world_id TEXT PRIMARY KEY REFERENCES worlds(world_id) ON DELETE CASCADE,
+  tick INTEGER NOT NULL,
+  saved_at TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_world_runtime_checkpoints_saved_at ON world_runtime_checkpoints(saved_at DESC);
 `;
 
 type TableInfoRow = {

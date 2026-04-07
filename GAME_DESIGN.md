@@ -82,6 +82,7 @@
   - shutdown-style chime for endgame or promotion beats
 - Voss should never feel warm or sincerely supportive.
 - Voss should sound like a disappointed middle manager hiding existential horror behind policy language.
+- The first time a player destroys a building or belt in a world, Voss should trigger a short joke about not destroying another planet.
 
 ## Character Flavor Lines
 
@@ -280,12 +281,23 @@
 - Building placement should be strict grid/snap.
 - This applies to the first version.
 - The grid should support clean, readable layouts and faster top-down interaction.
-- Destroying machines refunds all build items.
+- Most player-built buildings should occupy exactly `1` tile plus a cardinal facing.
+- Players should rotate buildings explicitly while placing them.
+- Port indicators should be visible during placement so orientation is readable before confirmation.
+- Non-miner buildings can be placed on any empty buildable tile.
+- Miner placement should use exact compatible node-anchor tiles.
+- One node anchor supports exactly one miner.
+- Destroying buildings and belts refunds their full build cost.
+- Removing a non-belt building should move its stored contents to the acting player's inventory.
+- If the acting player's inventory is full, overflow from that removal is destroyed.
 
 ## Map Direction
 
 - Version 1 should use a single handcrafted map.
 - The map should support controlled pacing and good early-game teaching.
+- The map is fixed in version 1.
+- Buildable grid tiles should also carry an altitude value.
+- Belts may ramp up or down between adjacent tiles when the altitude delta is at most `1`.
 
 ## Manual Gathering
 
@@ -403,10 +415,18 @@
   - output buffer: `200`
 - If a machine cannot accept more input or cannot clear more output, it becomes idle.
 - Machine recipe input and output rates should be configurable in data rather than hardcoded per machine generation.
+- Single-recipe machines should auto-configure when placed.
+- Multi-recipe machines should require explicit recipe selection.
+- Players should be able to insert items manually into machine input and fuel buffers.
+- Manual insertion should respect the selected recipe or fuel rules.
+- Players should not manually insert items into machine output buffers.
 - `Processor` has no generation variants.
 - `Processor` recipe selection changes only input and output rates/items.
 - `Processor` power draw is fixed by the machine rather than by the selected recipe.
 - `Processor` default power draw is `10 MW`.
+- Changing a machine recipe should move incompatible buffered contents to the acting player's inventory.
+- If the acting player's inventory is full, overflow from that recipe change is destroyed.
+- Changing a machine recipe should cancel current in-progress work and lose partial progress.
 - Current early machine baselines are:
   - `Miner v1`: `30/min`, `10 MW`
   - `Smelter v1`: `30/min`, `15 MW`
@@ -450,11 +470,26 @@
 
 - Belts can carry a single item type or a mixed stream of item types.
 - Higher belt generations increase throughput.
+- Belt building should connect one output port to one input port.
+- Ports should never connect directly without a belt between them.
+- The player should build one belt connection at a time rather than placing belt tiles manually.
+- Belt placement should snap to exact ports on hover.
+- After selecting the start output port, the player should see a provisional belt preview while hovering ground.
+- The preview should snap into a final valid shape only when hovering a compatible input port.
+- The server should compute the canonical route when the player confirms the connection.
+- Belt routes should use orthogonal empty tiles only.
+- Belt routes must contain at least one occupied belt tile.
+- Belt routes should not overlap, cross, or reuse other belt tiles in version 1.
+- Each specific port should support at most one attached belt run.
+- A belt should not connect a building back into itself.
+- Belt routing should prefer shortest path, then fewer turns, then continuing from the source direction, then right turns over left turns.
 - Mixed belts are a deliberate tradeoff between belt-port efficiency and throughput clarity.
 - Mergers and splitters are part of that tradeoff, especially when modular storage port count is constrained.
 - `Merger` and `Splitter` are square buildings.
 - `Merger` accepts up to `3` inputs and combines them into `1` output.
 - `Splitter` accepts `1` input and distributes it across up to `3` outputs.
+- Default facing for `Splitter` should be one input on the back side and outputs on the forward, left, and right sides.
+- Default facing for `Merger` should be inputs on the back, left, and right sides and one output on the forward side.
 - `Splitter` uses round-robin distribution across valid outputs, skips blocked outputs, and stalls only if all outputs are blocked.
 - `Merger` accepts any ready input on a first-come, first-served basis.
 - `Merger` output rate is capped by the connected output belt speed.
@@ -462,8 +497,9 @@
 - The modular storage is input-only in version 1.
 - The modular storage accepts only items currently required by the active tier.
 - The modular storage accepts mixed belts and does not jam on item sorting.
-- The modular storage has `6` belt input ports from the start.
+- The modular storage has `4` belt input ports from the start, one per cardinal side.
 - Modular storage port count is fixed and not upgradeable.
+- The modular storage is a fixed world object in version 1 and is not player-buildable or removable.
 - Once the current tier quota for an item is met, the modular storage stops accepting more of that item.
 - Excess production should back up naturally unless the player routes overflow into normal containers.
 - Normal containers exist as belt-fed sinks for non-delivery storage and overflow handling.
@@ -473,6 +509,8 @@
 
 - In solo, the player spawns with the items needed to complete the tutorial factory.
 - In multiplayer, the cohort's initial tutorial materials come from the auto-spawned `Starter Box`.
+- Build costs should be paid from the acting player's inventory only.
+- Belt cost should scale with the number of occupied belt tiles in the placed route.
 - Early machine costs should avoid circular dependencies.
 - `Smelter` requires `Iron Ingots`.
 - `Processor` requires `Iron Ingots`.

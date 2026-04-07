@@ -194,8 +194,10 @@ function GrinderSmoke({ registry }: { registry: AtomRegistry.AtomRegistry }) {
 
 export function MinerFoundation({
   registry,
+  groundDistance,
 }: {
   registry: AtomRegistry.AtomRegistry;
+  groundDistance?: number;
 }) {
   return (
     <group>
@@ -392,7 +394,7 @@ export function MinerFoundation({
               </mesh>
             </group>
 
-            <MinerLeg direction={a} registry={registry} />
+            <MinerLeg direction={a} registry={registry} groundDistance={groundDistance} />
           </group>
         );
       })}

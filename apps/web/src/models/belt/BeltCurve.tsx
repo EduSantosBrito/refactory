@@ -4,6 +4,7 @@ import { FrontSide, ShaderMaterial, Vector3 } from "three";
 import {
   BELT_TILE,
   BELT_SPEED,
+  DEFAULT_BELT_RATE_PER_MINUTE,
   RAIL_H,
   BASE_H,
   BASE_EXTEND,
@@ -16,8 +17,10 @@ import {
   CURVE_ARC_LENGTH,
   ARC_START,
   ARC_END,
+  ARC_EXT,
   BELT_COLORS,
   BELT_MAT,
+  resolveBeltSpeed,
 } from "./constants";
 import { buildArcStrip, buildArcWall, buildArcCap } from "./geometry";
 import { grooveVert, grooveFrag, GROOVE_RUNNING, GROOVE_STOPPED } from "./shaders";
@@ -43,11 +46,13 @@ export const CURVE_PORTS: BeltPort[] = [
  */
 export function BeltCurve({
   power = "running",
-  content = "empty",
-  speed = BELT_SPEED,
+  content: _content = "empty",
+  ratePerMinute = DEFAULT_BELT_RATE_PER_MINUTE,
+  speed,
   ...props
 }: BeltSegmentProps) {
   const overlayRef = useRef<ShaderMaterial>(null);
+  const beltSpeed = resolveBeltSpeed({ ratePerMinute, speed }) ?? BELT_SPEED;
 
   const running = power === "running";
   const groove = running ? GROOVE_RUNNING : GROOVE_STOPPED;
@@ -59,29 +64,59 @@ export function BeltCurve({
     const BI = CURVE_BELT_INNER;
     const BO = CURVE_BELT_OUTER;
 
-    return {
-      // ── Core body ──
-      top: buildArcStrip(FI, FO, H, true),
-      bottom: buildArcStrip(FI, FO, 0, false),
-      innerWall: buildArcWall(FI, 0, H, false),
-      outerWall: buildArcWall(FO, 0, H, true),
-      startCap: buildArcCap(ARC_START, FI, FO, 0, H, true),
-      endCap: buildArcCap(ARC_END, FI, FO, 0, H, false),
+    const BODY_BOT = BASE_H - 0.005;
 
-      // ── Belt surface (slightly raised, dark) ──
+    return {
+      // ── Core body (overlaps into base plate like straight belt) ──
+      top: buildArcStrip(FI, FO, H, true),
+      bottom: buildArcStrip(FI, FO, BODY_BOT, false),
+      innerWall: buildArcWall(FI, BODY_BOT, H, false),
+      outerWall: buildArcWall(FO, BODY_BOT, H, true),
+      startCap: buildArcCap(ARC_START + ARC_EXT, FI, FO, BODY_BOT, H, true),
+      endCap: buildArcCap(ARC_END - ARC_EXT, FI, FO, BODY_BOT, H, false),
+
+      // ── Belt surface (raised above frame top to avoid z-fighting) ──
       surface: buildArcStrip(BI, BO, H + 0.001, true),
 
       // ── Raised rails ──
-      innerRailWall: buildArcWall(BI, H, H + RAIL_H, false),
+      innerRailWall: buildArcWall(BI, H, H + RAIL_H, true),
+      innerRailInnerWall: buildArcWall(FI, H, H + RAIL_H, false),
       innerRailTop: buildArcStrip(FI, BI, H + RAIL_H, true),
-      outerRailWall: buildArcWall(BO, H, H + RAIL_H, true),
+      innerRailStartCap: buildArcCap(ARC_START + ARC_EXT, FI, BI, H, H + RAIL_H, true),
+      innerRailEndCap: buildArcCap(ARC_END - ARC_EXT, FI, BI, H, H + RAIL_H, false),
+      outerRailWall: buildArcWall(BO, H, H + RAIL_H, false),
+      outerRailOuterWall: buildArcWall(FO, H, H + RAIL_H, true),
       outerRailTop: buildArcStrip(BO, FO, H + RAIL_H, true),
+      outerRailStartCap: buildArcCap(ARC_START + ARC_EXT, BO, FO, H, H + RAIL_H, true),
+      outerRailEndCap: buildArcCap(ARC_END - ARC_EXT, BO, FO, H, H + RAIL_H, false),
+
+      // ── Frame extension walls at base plate radii (visible from outside) ──
+      outerFrameWall: buildArcWall(FO + BASE_EXTEND, BASE_H, H, true),
+      innerFrameWall: buildArcWall(FI - BASE_EXTEND, BASE_H, H, false),
+      outerFrameTop: buildArcStrip(FO, FO + BASE_EXTEND, H, true),
+      innerFrameTop: buildArcStrip(FI - BASE_EXTEND, FI, H, true),
 
       // ── Base plate ──
       basePlateTop: buildArcStrip(FI - BASE_EXTEND, FO + BASE_EXTEND, BASE_H, true),
       basePlateBottom: buildArcStrip(FI - BASE_EXTEND, FO + BASE_EXTEND, 0, false),
       basePlateInner: buildArcWall(FI - BASE_EXTEND, 0, BASE_H, false),
       basePlateOuter: buildArcWall(FO + BASE_EXTEND, 0, BASE_H, true),
+      basePlateStartCap: buildArcCap(
+        ARC_START + ARC_EXT,
+        FI - BASE_EXTEND,
+        FO + BASE_EXTEND,
+        0,
+        BASE_H,
+        true,
+      ),
+      basePlateEndCap: buildArcCap(
+        ARC_END - ARC_EXT,
+        FI - BASE_EXTEND,
+        FO + BASE_EXTEND,
+        0,
+        BASE_H,
+        false,
+      ),
 
       // ── Accent stripe ──
       accent: buildArcStrip(FI - 0.005, FO + 0.005, ACCENT_Y, true),
@@ -103,14 +138,11 @@ export function BeltCurve({
     };
 
     if (running) {
-      u.uTime.value += delta * speed;
+      u.uTime.value += delta * beltSpeed;
     }
 
     u.uOpacity.value += (groove.opacity - u.uOpacity.value) * 0.1;
-    u.uColor.value.lerp(
-      _lerpTarget.set(groove.color[0], groove.color[1], groove.color[2]),
-      0.1,
-    );
+    u.uColor.value.lerp(_lerpTarget.set(groove.color[0], groove.color[1], groove.color[2]), 0.1);
   });
 
   return (
@@ -121,12 +153,12 @@ export function BeltCurve({
           color={BELT_COLORS.frame}
           {...BELT_MAT.frame}
           polygonOffset
-          polygonOffsetFactor={1}
-          polygonOffsetUnits={1}
+          polygonOffsetFactor={2}
+          polygonOffsetUnits={2}
         />
       </mesh>
       <mesh geometry={geo.bottom}>
-        <meshStandardMaterial color={BELT_COLORS.base} {...BELT_MAT.base} />
+        <meshStandardMaterial color={BELT_COLORS.frame} {...BELT_MAT.frame} />
       </mesh>
       <mesh geometry={geo.innerWall}>
         <meshStandardMaterial color={BELT_COLORS.frame} {...BELT_MAT.frame} />
@@ -135,10 +167,22 @@ export function BeltCurve({
         <meshStandardMaterial color={BELT_COLORS.frame} {...BELT_MAT.frame} />
       </mesh>
       <mesh geometry={geo.startCap}>
-        <meshStandardMaterial color={BELT_COLORS.cap} {...BELT_MAT.cap} />
+        <meshStandardMaterial color={BELT_COLORS.frame} {...BELT_MAT.frame} />
       </mesh>
       <mesh geometry={geo.endCap}>
-        <meshStandardMaterial color={BELT_COLORS.cap} {...BELT_MAT.cap} />
+        <meshStandardMaterial color={BELT_COLORS.frame} {...BELT_MAT.frame} />
+      </mesh>
+      <mesh geometry={geo.outerFrameWall}>
+        <meshStandardMaterial color={BELT_COLORS.frame} {...BELT_MAT.frame} />
+      </mesh>
+      <mesh geometry={geo.innerFrameWall}>
+        <meshStandardMaterial color={BELT_COLORS.frame} {...BELT_MAT.frame} />
+      </mesh>
+      <mesh geometry={geo.outerFrameTop}>
+        <meshStandardMaterial color={BELT_COLORS.frame} {...BELT_MAT.frame} />
+      </mesh>
+      <mesh geometry={geo.innerFrameTop}>
+        <meshStandardMaterial color={BELT_COLORS.frame} {...BELT_MAT.frame} />
       </mesh>
 
       {/* ── Belt surface ──────────────────────────────────── */}
@@ -156,13 +200,31 @@ export function BeltCurve({
       <mesh geometry={geo.innerRailWall}>
         <meshStandardMaterial color={BELT_COLORS.rail} {...BELT_MAT.rail} />
       </mesh>
+      <mesh geometry={geo.innerRailInnerWall}>
+        <meshStandardMaterial color={BELT_COLORS.rail} {...BELT_MAT.rail} />
+      </mesh>
       <mesh geometry={geo.innerRailTop}>
+        <meshStandardMaterial color={BELT_COLORS.rail} {...BELT_MAT.rail} />
+      </mesh>
+      <mesh geometry={geo.innerRailStartCap}>
+        <meshStandardMaterial color={BELT_COLORS.rail} {...BELT_MAT.rail} />
+      </mesh>
+      <mesh geometry={geo.innerRailEndCap}>
         <meshStandardMaterial color={BELT_COLORS.rail} {...BELT_MAT.rail} />
       </mesh>
       <mesh geometry={geo.outerRailWall}>
         <meshStandardMaterial color={BELT_COLORS.rail} {...BELT_MAT.rail} />
       </mesh>
+      <mesh geometry={geo.outerRailOuterWall}>
+        <meshStandardMaterial color={BELT_COLORS.rail} {...BELT_MAT.rail} />
+      </mesh>
       <mesh geometry={geo.outerRailTop}>
+        <meshStandardMaterial color={BELT_COLORS.rail} {...BELT_MAT.rail} />
+      </mesh>
+      <mesh geometry={geo.outerRailStartCap}>
+        <meshStandardMaterial color={BELT_COLORS.rail} {...BELT_MAT.rail} />
+      </mesh>
+      <mesh geometry={geo.outerRailEndCap}>
         <meshStandardMaterial color={BELT_COLORS.rail} {...BELT_MAT.rail} />
       </mesh>
 
@@ -179,10 +241,22 @@ export function BeltCurve({
       <mesh geometry={geo.basePlateOuter}>
         <meshStandardMaterial color={BELT_COLORS.base} {...BELT_MAT.base} />
       </mesh>
+      <mesh geometry={geo.basePlateStartCap}>
+        <meshStandardMaterial color={BELT_COLORS.base} {...BELT_MAT.base} />
+      </mesh>
+      <mesh geometry={geo.basePlateEndCap}>
+        <meshStandardMaterial color={BELT_COLORS.base} {...BELT_MAT.base} />
+      </mesh>
 
       {/* ── Accent stripe ─────────────────────────────────── */}
       <mesh geometry={geo.accent}>
-        <meshStandardMaterial color={BELT_COLORS.accent} {...BELT_MAT.accent} />
+        <meshStandardMaterial
+          color={BELT_COLORS.accent}
+          {...BELT_MAT.accent}
+          polygonOffset
+          polygonOffsetFactor={-1}
+          polygonOffsetUnits={-1}
+        />
       </mesh>
 
       {/* ── Groove overlay — scrolling motion lines ───────── */}

@@ -6,7 +6,12 @@ export { STRAIGHT_PORTS } from "./BeltSegment";
 export { BeltCurve } from "./BeltCurve";
 export { CURVE_PORTS } from "./BeltCurve";
 
-export { BeltChain, getChainPosition, computeChainPath, getSegmentLocalPosition } from "./BeltChain";
+export {
+  BeltChain,
+  getChainPosition,
+  computeChainPath,
+  getSegmentLocalPosition,
+} from "./BeltChain";
 export type { BeltChainProps } from "./BeltChain";
 
 /* ── Constants ───────────────────────────────────────────── */
@@ -14,11 +19,15 @@ export type { BeltChainProps } from "./BeltChain";
 export {
   BELT_TILE,
   BELT_SPEED,
+  DEFAULT_BELT_RATE_PER_MINUTE,
+  BELT_TARGET_ITEM_SPACING,
   SURFACE_W,
   FRAME_W,
   BELT_COLORS,
   BELT_MAT,
   CURVE_ARC_LENGTH,
+  getBeltLoopItemCount,
+  resolveBeltSpeed,
 } from "./constants";
 
 /* ── Types ───────────────────────────────────────────────── */
