@@ -17,6 +17,10 @@ const SignedActorHeaders = Schema.Struct({
 
 type SignedActorHeaders = Schema.Schema.Type<typeof SignedActorHeaders>;
 
+export type SignedActorEnvelope = SignedActorHeaders & {
+  readonly signature: string;
+};
+
 const canonicalRequestTarget = (url: string) => {
   const parsed = new URL(url, "http://refactory.local");
   return `${parsed.pathname}${parsed.search}`;
@@ -61,19 +65,30 @@ const buildSigningPayload = (request: {
 }, headers: SignedActorHeaders) =>
   [request.method.toUpperCase(), canonicalRequestTarget(request.url), String(headers["x-refactory-actor-timestamp"]), headers["x-refactory-actor-name"]].join("\n");
 
-const verifySignedActor = Effect.fnUntraced(function*(request: {
+export const stripActorAuthSearchParams = (url: string) => {
+  const parsed = new URL(url, "http://refactory.local");
+
+  parsed.searchParams.delete("x-refactory-actor-key");
+  parsed.searchParams.delete("x-refactory-actor-name");
+  parsed.searchParams.delete("x-refactory-actor-signature");
+  parsed.searchParams.delete("x-refactory-actor-timestamp");
+
+  return `${parsed.pathname}${parsed.search}`;
+};
+
+export const verifySignedActorRequest = Effect.fnUntraced(function*(request: {
   readonly method: string;
   readonly url: string;
-}, headers: SignedActorHeaders, signatureHeader: string) {
+}, envelope: SignedActorEnvelope) {
   const now = Date.now();
-  const ageMs = Math.abs(now - headers["x-refactory-actor-timestamp"]);
+  const ageMs = Math.abs(now - envelope["x-refactory-actor-timestamp"]);
 
   if (ageMs > maxActorClockSkewMs) {
     return yield* Effect.fail(new ActorAuthError({ message: "Actor signature timestamp is outside the allowed clock skew" }));
   }
 
-  const publicKeyBytes = decodeBase64Url(headers["x-refactory-actor-key"]);
-  const signatureBytes = decodeBase64Url(signatureHeader);
+  const publicKeyBytes = decodeBase64Url(envelope["x-refactory-actor-key"]);
+  const signatureBytes = decodeBase64Url(envelope.signature);
 
   if (publicKeyBytes === undefined || signatureBytes === undefined) {
     return yield* Effect.fail(new ActorAuthError({ message: "Actor signature or public key is not valid base64url" }));
@@ -85,7 +100,13 @@ const verifySignedActor = Effect.fnUntraced(function*(request: {
   });
 
   const verified = yield* Effect.tryPromise({
-    try: () => crypto.subtle.verify("Ed25519", publicKey, signatureBytes, new TextEncoder().encode(buildSigningPayload(request, headers))),
+    try: () =>
+      crypto.subtle.verify(
+        "Ed25519",
+        publicKey,
+        signatureBytes,
+        new TextEncoder().encode(buildSigningPayload(request, envelope)),
+      ),
     catch: () => new ActorAuthError({ message: "Actor signature verification failed" }),
   });
 
@@ -94,8 +115,8 @@ const verifySignedActor = Effect.fnUntraced(function*(request: {
   }
 
   const actor: ActorContext = {
-    displayName: headers["x-refactory-actor-name"],
-    publicKey: headers["x-refactory-actor-key"],
+    displayName: envelope["x-refactory-actor-name"],
+    publicKey: envelope["x-refactory-actor-key"],
   };
 
   return actor;
@@ -107,7 +128,10 @@ export const ActorAuthLive = Layer.succeed(ActorAuth)({
     const headers = yield* HttpServerRequest.schemaHeaders(SignedActorHeaders).pipe(
       Effect.mapError(() => new ActorAuthError({ message: "Missing or invalid actor headers" })),
     );
-    const actor = yield* verifySignedActor(request, headers, Redacted.value(options.credential));
+    const actor = yield* verifySignedActorRequest(request, {
+      ...headers,
+      signature: Redacted.value(options.credential),
+    });
 
     return yield* Effect.provideService(httpEffect, CurrentActor, actor);
   }),

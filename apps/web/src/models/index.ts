@@ -2,7 +2,6 @@ export { PlayerAvatar } from "./PlayerAvatar";
 export { ResourceNode } from "./ResourceNode";
 export type { ResourceType, PurityTier, ResourceNodeProps } from "./ResourceNode";
 export { NODE_MINER_OFFSET } from "./ResourceNode";
-export { Smelter } from "./Smelter";
 export { Processor } from "./Processor";
 
 /* ── New modular belt system ─────────────────────────────── */
@@ -33,7 +32,6 @@ export type {
 } from "./belt";
 
 export { ModularStorage } from "./ModularStorage";
-export { Burner } from "./Burner";
 export { PowerPole } from "./PowerPole";
 export { StatusPole } from "./StatusPole";
 export type { StatusPoleStatus } from "./StatusPole";

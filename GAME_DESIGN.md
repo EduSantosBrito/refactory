@@ -82,7 +82,10 @@
   - shutdown-style chime for endgame or promotion beats
 - Voss should never feel warm or sincerely supportive.
 - Voss should sound like a disappointed middle manager hiding existential horror behind policy language.
-- The first time a player destroys a building or belt in a world, Voss should trigger a short joke about not destroying another planet.
+- The first successful removal of any player-built building or belt run in a world should trigger a short Voss joke about not destroying another planet.
+- This is world-global, not per-player.
+- It should be shown to all currently connected players.
+- It should never repeat in that world after the first successful trigger.
 
 ## Character Flavor Lines
 
@@ -101,11 +104,13 @@
 - In multiplayer, the host controls progression through boss chat phrases so only one conversation state exists.
 - Guests can vote to advance the current phrase if the host is AFK or not progressing the conversation.
 - Skip passes on majority vote among currently connected players.
+- Solo skip should pass immediately.
 - Example thresholds:
   - in a 2-player session, 1 vote is enough
   - in a 3-player session, 2 votes are enough
   - in a 4-player session, 3 votes are enough
 - The vote should reset when the current phrase changes.
+- The vote requirement should recalculate live when players connect or disconnect.
 - Voss messages should stay short enough that skipping them never feels like skipping a cutscene.
 
 ## World Modes And Co-op Framing
@@ -249,9 +254,9 @@
 - Tech unlocks should be driven mainly by milestone deliveries.
 - Exploration can provide side bonuses to progression.
 - Each tier has a fixed shopping list with exact item quantities.
-- The player manually presses `Deliver` to launch a rocket shipment.
-- Delivering a shipment discards any overfill of currently required tier items beyond the exact quota.
-- Overfill loss is intentional and part of the game's unfair, efficiency-focused tone.
+- The player manually presses `Launch Shipment` after the required quota has already been accumulated in modular storage.
+- Quota progress counts on modular-storage acceptance, not on shipment launch.
+- Shipment launch is the progression trigger and rocket-departure moment, not the quota-counting moment.
 - The next tier unlocks only after the rocket returns.
 - Rocket return time should create a short refactor window between tiers.
 - Each tier return triggers a new boss call that reframes demand and sets the next delivery objective.
@@ -262,8 +267,11 @@
 - All tier deliveries flow through the modular storage.
 - The modular storage keeps operating while the rocket is away.
 - The player's boss gives new work rather than congratulations; each completed tier escalates demand.
-- Deliver launches all currently stored items that are valid for the active tier.
-- Only the required quota counts toward progression; any extra valid items in that launch are destroyed.
+- Modular storage acceptance is what increments quota progress.
+- The player launches shipment only after the quota is satisfied.
+- Shipment launch consumes the already reserved required quota items and starts the rocket return timer.
+- In version 1, modular storage should stop accepting an item once the current required quota for that item is met.
+- Because of that v1 acceptance cap, valid quota items should not accumulate launch-time overfill inside modular storage.
 
 ## Tier Timing Targets
 
@@ -296,6 +304,10 @@
 - Version 1 should use a single handcrafted map.
 - The map should support controlled pacing and good early-game teaching.
 - The map is fixed in version 1.
+- The fixed map should still be represented as data rather than as hardcoded runtime constants.
+- The map contract should include both point anchors and validation zones.
+- Point anchors are for things like ore nodes, modular storage, starter placement, and other fixed objects.
+- Validation zones are for things like water access and heat-placement checks.
 - Buildable grid tiles should also carry an altitude value.
 - Belts may ramp up or down between adjacent tiles when the altitude delta is at most `1`.
 
@@ -325,20 +337,24 @@
 
 - Automated power source.
 - Generates small amounts of power.
-- Can only be placed on wind-flow spots.
+- Can be placed on any buildable tile.
+- Requires no fuel.
+- Uses a short power radius.
+- Its purpose is unattended supplemental power and remote mini-factory support, not full baseline replacement.
 
 ### 3. Heat farm
 
 - Automated power source.
 - Generates medium amounts of power.
 - Can only be placed on heat spots.
+- Heat spots are validated from map data rather than from hardcoded runtime rules.
 
 ### 4. Coal power plant
 
 - Automated, infinite power source.
 - Requires coal from a node.
 - Requires water.
-- Water source is still open, examples include lake, ocean, or groundwater.
+- In version 1, water is a placement/validation gate by nearby water zone rather than a transported fluid.
 - Generates high power.
 
 ### 5. Nuclear power plant
@@ -347,6 +363,7 @@
 - Requires enriched uranium.
 - Enriched uranium comes from a uranium node plus a uranium enricher.
 - Requires water.
+- In version 1, water is a placement/validation gate by nearby water zone rather than a transported fluid.
 - Generates huge power.
 
 ### Relative power scale
@@ -361,6 +378,8 @@
 - Tier 2 wind is not intended to fully replace Tier 1 burners.
 - Tier 2 wind is intended mainly as unattended supplemental power and for remote outposts.
 - Tier 3 heat is the first automated power tier that can match the Tier 1 baseline.
+- All power tiers should share the same power-network rules.
+- Generator tiers should differ mainly by stats, source requirements, and later side effects rather than by using totally different network mechanics.
 
 ## Power Network Rules
 
@@ -372,17 +391,30 @@
 - Overlapping generator and pole ranges create a continuous energized network.
 - A machine is powered only when it is inside an energized range chain connected back to at least one active generator.
 - Power uses both coverage and total generation capacity.
+- Powered tiles and network reach should be readable from placement and gameplay feedback.
+- A pole becomes energized when its range touches already energized tiles and then relays power onward with its own range.
+- Separate energized islands are separate power networks.
 - Tier 1 should usually support a normal base with 1 to 2 burners.
 - The tutorial line should fit on one burner, but the first expansion should naturally push the player toward a second burner.
 - Burner refuel pressure should target medium friction, roughly every 3 to 5 minutes per burner under normal load.
+- Only actively running machines should consume power in version 1.
+- Idle or blocked machines should consume `0` power in version 1.
+- Belts, poles, modular storage, and ordinary containers should consume `0` power in version 1.
+- Players should be able to read four network values clearly:
+  - current production
+  - current consumption
+  - max capacity
+  - max possible consumption if all machines on that network were running
+- Burners should scale fuel consumption to actual current production demand rather than always burning at full rate.
 
 ## Power Failure Rules
 
 - The game should not use soft brownouts for overloads in version 1.
-- If currently active machine demand exceeds total generated power, the network enters a short-circuit failure state.
-- In a short-circuit state, the powered network shuts down.
+- If currently active machine demand exceeds total generated power, that connected power network enters a short-circuit failure state.
+- In a short-circuit state, the entire affected network shuts down.
 - Recovery requires the player to add more power generation and then restart the power network.
 - Restart should be performed by interacting with a powered machine or power-related machine and selecting `Restart` for the network.
+- The player should be allowed to attempt restart at any time.
 - If the player restarts without enough new generation, the network should come back briefly and fail again after about 1 to 2 seconds.
 - Overload checks should use currently active load only.
 - Idle or blocked machines should not reserve their full maximum power demand.
@@ -420,6 +452,8 @@
 - Players should be able to insert items manually into machine input and fuel buffers.
 - Manual insertion should respect the selected recipe or fuel rules.
 - Players should not manually insert items into machine output buffers.
+- Players should not manually insert items into modular storage.
+- Players should not manually withdraw quota-reserved contents from modular storage.
 - `Processor` has no generation variants.
 - `Processor` recipe selection changes only input and output rates/items.
 - `Processor` power draw is fixed by the machine rather than by the selected recipe.
@@ -501,6 +535,7 @@
 - Modular storage port count is fixed and not upgradeable.
 - The modular storage is a fixed world object in version 1 and is not player-buildable or removable.
 - Once the current tier quota for an item is met, the modular storage stops accepting more of that item.
+- Quota progress increments when modular storage accepts valid items, not when the shipment is launched.
 - Excess production should back up naturally unless the player routes overflow into normal containers.
 - Normal containers exist as belt-fed sinks for non-delivery storage and overflow handling.
 - When modular storage stops accepting an item, belts stop advancing into it and the resulting backpressure should propagate naturally through machine buffers and upstream production.
@@ -530,7 +565,7 @@
 - Another risk is introducing too many resource types too early and weakening the tutorial.
 - Another risk is making short-circuit recovery and efficiency gameplay feel opaque instead of strategic.
 - Another risk is making mixed-belt routing and selective storage behavior hard to read from the top-down camera.
-- Another risk is that punitive overfill loss may push players toward sandbagging instead of healthy factory buffering.
+- Another risk is that strict modular-storage acceptance caps may make overflow handling feel too rigid if normal-container routing is not introduced clearly enough.
 
 ## Story Beats
 

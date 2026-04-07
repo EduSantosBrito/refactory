@@ -17,6 +17,13 @@ export type BuildableDefinition = {
   readonly buildCostItemId: string;
   readonly buildableId: string;
   readonly fuelAcceptedItemIds: ReadonlyArray<string>;
+  readonly generator:
+    | {
+        readonly fuelTicksPerItemAtFullLoad: number;
+        readonly maxCapacityMw: number;
+        readonly powerRadius: number;
+      }
+    | undefined;
   readonly machineKind: string | undefined;
   readonly ports: ReadonlyArray<PortDefinition>;
 };
@@ -24,6 +31,7 @@ export type BuildableDefinition = {
 export type MachineDefinition = {
   readonly defaultRecipeId: string | undefined;
   readonly kind: string;
+  readonly powerDrawMw: number;
   readonly recipes: ReadonlyArray<MachineRecipeDefinition>;
 };
 
@@ -41,6 +49,7 @@ export const BUILDABLE_DEFINITIONS: ReadonlyArray<BuildableDefinition> = [
     buildCostItemId: "miner_v1",
     buildableId: "miner_v1",
     fuelAcceptedItemIds: [],
+    generator: undefined,
     machineKind: "miner_v1",
     ports: [{ facing: "east", portId: "out-0", role: "output" }],
   },
@@ -48,6 +57,7 @@ export const BUILDABLE_DEFINITIONS: ReadonlyArray<BuildableDefinition> = [
     buildCostItemId: "smelter_v1",
     buildableId: "smelter_v1",
     fuelAcceptedItemIds: [],
+    generator: undefined,
     machineKind: "smelter_v1",
     ports: [
       { facing: "west", portId: "in-0", role: "input" },
@@ -58,6 +68,7 @@ export const BUILDABLE_DEFINITIONS: ReadonlyArray<BuildableDefinition> = [
     buildCostItemId: "processor",
     buildableId: "processor",
     fuelAcceptedItemIds: [],
+    generator: undefined,
     machineKind: "processor",
     ports: [
       { facing: "west", portId: "in-0", role: "input" },
@@ -68,6 +79,11 @@ export const BUILDABLE_DEFINITIONS: ReadonlyArray<BuildableDefinition> = [
     buildCostItemId: "burner_v1",
     buildableId: "burner_v1",
     fuelAcceptedItemIds: ["wood"],
+    generator: {
+      fuelTicksPerItemAtFullLoad: 1800,
+      maxCapacityMw: 30,
+      powerRadius: 4,
+    },
     machineKind: undefined,
     ports: [],
   },
@@ -77,6 +93,7 @@ export const MACHINE_DEFINITIONS: ReadonlyArray<MachineDefinition> = [
   {
     defaultRecipeId: "iron_ore",
     kind: "miner_v1",
+    powerDrawMw: 10,
     recipes: [
       {
         cycleProgressPerTick: earlyCycleProgressPerTick,
@@ -89,6 +106,7 @@ export const MACHINE_DEFINITIONS: ReadonlyArray<MachineDefinition> = [
   {
     defaultRecipeId: undefined,
     kind: "smelter_v1",
+    powerDrawMw: 15,
     recipes: [
       {
         cycleProgressPerTick: earlyCycleProgressPerTick,
@@ -101,6 +119,7 @@ export const MACHINE_DEFINITIONS: ReadonlyArray<MachineDefinition> = [
   {
     defaultRecipeId: undefined,
     kind: "processor",
+    powerDrawMw: 10,
     recipes: [
       {
         cycleProgressPerTick: earlyCycleProgressPerTick,
@@ -122,6 +141,9 @@ const unique = (values: ReadonlyArray<string>) => values.filter((value, index) =
 
 export const findBuildableDefinition = (buildableId: string) =>
   BUILDABLE_DEFINITIONS.find((definition) => definition.buildableId === buildableId);
+
+export const findGeneratorDefinition = (buildableId: string) =>
+  findBuildableDefinition(buildableId)?.generator;
 
 export const findMachineDefinition = (kind: string) =>
   MACHINE_DEFINITIONS.find((definition) => definition.kind === kind);

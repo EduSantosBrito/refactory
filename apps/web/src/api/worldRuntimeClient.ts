@@ -7,10 +7,16 @@ import {
 import {
   GetWorldRuntimeCheckpointResponse,
   GetWorldRuntimeResponse,
+  WorldRuntimeDelta,
   WorldRuntimeDeltaMessage,
-  WorldRuntimeMessage,
   WorldRuntimeSnapshotMessage,
 } from "@refactory/contracts/runtime";
+import {
+  WorldCommandQueuedMessage,
+  WorldCommandReceiptMessage,
+  WorldRuntimeResyncRequiredMessage,
+  WorldRuntimeServerMessage,
+} from "@refactory/contracts/socket";
 export {
   SubmitWorldCommandRequest,
   SubmitWorldCommandResponse,
@@ -22,22 +28,32 @@ export {
   GetWorldRuntimeResponse,
   WorldRuntimeDelta,
   WorldRuntimeDeltaMessage,
-  WorldRuntimeMessage,
   WorldRuntimeSnapshot,
   WorldRuntimeSnapshotMessage,
 } from "@refactory/contracts/runtime";
+export {
+  WorldCommandQueuedMessage,
+  WorldCommandReceiptMessage,
+  WorldRuntimeBindMessage,
+  WorldRuntimeClientMessage,
+  WorldRuntimeCommandMessage,
+  WorldRuntimeHeartbeatMessage,
+  WorldRuntimeResyncRequiredMessage,
+  WorldRuntimeServerMessage,
+} from "@refactory/contracts/socket";
 import type {
   GetWorldRuntimeResponse as GetWorldRuntimeResponseType,
-  WorldRuntimeMessage as WorldRuntimeMessageType,
 } from "@refactory/contracts/runtime";
+import type { WorldRuntimeServerMessage as WorldRuntimeMessageType } from "@refactory/contracts/socket";
 import type {
   SubmitWorldCommandResponse as SubmitWorldCommandResponseType,
   WorldCommand as WorldCommandType,
 } from "@refactory/contracts/commands";
 import { Effect, Schema } from "effect";
+import { getOrCreateActorCredentials, makeSignedActorHeaders } from "./actorAuth";
 import { makeWorldApiClient } from "./worldClient";
 
-const decodeWorldRuntimeMessage = Schema.decodeUnknownSync(WorldRuntimeMessage);
+const decodeWorldRuntimeMessage = Schema.decodeUnknownSync(WorldRuntimeServerMessage);
 
 type SignedRuntimeClientOptions = {
   readonly actorDisplayName: string;
@@ -64,6 +80,26 @@ export const makeWorldRuntimeSocketUrl = (options: RuntimeSocketOptions) => {
 
   return `${protocol}//${baseUrl.host}${normalizedBasePath}/worlds/${options.worldId}/runtime/socket`;
 };
+
+/** Build a signed websocket URL using the same actor identity model as HTTP. */
+export const makeSignedWorldRuntimeSocketUrl = Effect.fnUntraced(function*(options: SignedRuntimeClientOptions & RuntimeSocketOptions) {
+  const actor = yield* getOrCreateActorCredentials({ displayName: options.actorDisplayName });
+  const fetchBasePath = options.fetchBasePath ?? "/api";
+  const normalizedBasePath = fetchBasePath.endsWith("/") ? fetchBasePath.slice(0, -1) : fetchBasePath;
+  const pathAndQuery = `${normalizedBasePath}/worlds/${options.worldId}/runtime/socket`;
+  const signedHeaders = yield* makeSignedActorHeaders({
+    actor,
+    method: "GET",
+    pathAndQuery,
+  });
+  const url = new URL(makeWorldRuntimeSocketUrl(options));
+
+  for (const [headerName, headerValue] of Object.entries(signedHeaders)) {
+    url.searchParams.set(headerName, headerValue);
+  }
+
+  return url.toString();
+});
 
 /** Fetch the current authoritative runtime snapshot for a world. */
 export const getWorldRuntime = Effect.fnUntraced(function*(options: SignedRuntimeClientOptions & {
@@ -114,6 +150,18 @@ export const isWorldRuntimeSnapshotMessage = (
 export const isWorldRuntimeDeltaMessage = (
   message: WorldRuntimeMessageType,
 ): message is WorldRuntimeDeltaMessage => message._tag === "WorldRuntimeDeltaMessage";
+
+export const isWorldCommandQueuedMessage = (
+  message: WorldRuntimeMessageType,
+): message is WorldCommandQueuedMessage => message._tag === "WorldCommandQueuedMessage";
+
+export const isWorldCommandReceiptMessage = (
+  message: WorldRuntimeMessageType,
+): message is WorldCommandReceiptMessage => message._tag === "WorldCommandReceiptMessage";
+
+export const isWorldRuntimeResyncRequiredMessage = (
+  message: WorldRuntimeMessageType,
+): message is WorldRuntimeResyncRequiredMessage => message._tag === "WorldRuntimeResyncRequiredMessage";
 
 export type GetWorldRuntimeResult = GetWorldRuntimeResponseType;
 export type SubmitWorldCommandResult = SubmitWorldCommandResponseType;

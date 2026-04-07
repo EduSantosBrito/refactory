@@ -6,10 +6,7 @@ import { Character, type CharacterName } from "../models/Character";
 import {
   ResourceNode,
   NODE_MINER_OFFSET,
-  Smelter,
-  Processor,
   ModularStorage,
-  Burner,
   PowerPole,
   WindTurbine,
   Rocket,
@@ -193,7 +190,7 @@ const FoundationMdDemo: React.FC<ModelProps> = (props) => (
 );
 const BodyShortDemo: React.FC<ModelProps> = (props) => (
   <group {...props}>
-    <group position={[0, 0.10, 0]}>
+    <group position={[0, 0.1, 0]}>
       <BuildingBody height="short" />
     </group>
   </group>
@@ -207,49 +204,75 @@ const BodyDemo: React.FC<ModelProps> = (props) => (
 );
 const BodyTallDemo: React.FC<ModelProps> = (props) => (
   <group {...props}>
-    <group position={[0, 0.20, 0]}>
+    <group position={[0, 0.2, 0]}>
       <BuildingBody height="tall" />
     </group>
   </group>
 );
 const PowerUnitDemo: React.FC<ModelProps> = (props) => (
-  <group {...props}><PowerUnit /></group>
+  <group {...props}>
+    <PowerUnit />
+  </group>
 );
 const AntennaModuleDemo: React.FC<ModelProps> = (props) => (
-  <group {...props}><AntennaModule /></group>
+  <group {...props}>
+    <AntennaModule />
+  </group>
 );
 const ChimneyStackDemo: React.FC<ModelProps> = (props) => (
-  <group {...props}><ChimneyStack /></group>
+  <group {...props}>
+    <ChimneyStack />
+  </group>
 );
 const TurbinePlateDemo: React.FC<ModelProps> = (props) => (
-  <group {...props}><TurbinePlate /></group>
+  <group {...props}>
+    <TurbinePlate />
+  </group>
 );
 const DrillHeadDemo: React.FC<ModelProps> = (props) => (
-  <group {...props}><DrillHead /></group>
+  <group {...props}>
+    <DrillHead />
+  </group>
 );
 const TankClusterDemo: React.FC<ModelProps> = (props) => (
-  <group {...props}><TankCluster /></group>
+  <group {...props}>
+    <TankCluster />
+  </group>
 );
 const HeatSinkArrayDemo: React.FC<ModelProps> = (props) => (
-  <group {...props}><HeatSinkArray /></group>
+  <group {...props}>
+    <HeatSinkArray />
+  </group>
 );
 const SortingFrameDemo: React.FC<ModelProps> = (props) => (
-  <group {...props}><SortingFrame /></group>
+  <group {...props}>
+    <SortingFrame />
+  </group>
 );
 const SideTankDemo: React.FC<ModelProps> = (props) => (
-  <group {...props}><SideTank /></group>
+  <group {...props}>
+    <SideTank />
+  </group>
 );
 const SideVentDemo: React.FC<ModelProps> = (props) => (
-  <group {...props}><SideVent /></group>
+  <group {...props}>
+    <SideVent />
+  </group>
 );
 const SidePipeDemo: React.FC<ModelProps> = (props) => (
-  <group {...props}><SidePipe /></group>
+  <group {...props}>
+    <SidePipe />
+  </group>
 );
 const SidePanelDemo: React.FC<ModelProps> = (props) => (
-  <group {...props}><SidePanel /></group>
+  <group {...props}>
+    <SidePanel />
+  </group>
 );
 const SideLampDemo: React.FC<ModelProps> = (props) => (
-  <group {...props}><SideLamp /></group>
+  <group {...props}>
+    <SideLamp />
+  </group>
 );
 
 /* Example buildings */
@@ -402,9 +425,24 @@ const SECTIONS: Section[] = [
   {
     label: "Game Models",
     entries: [
-      { kind: "component", name: "Smelter", component: Smelter },
-      { kind: "component", name: "Processor", component: Processor },
-      { kind: "component", name: "Burner", component: Burner },
+      {
+        kind: "component",
+        name: "Smelter",
+        component: () => <OreSmelter status="green" />,
+        scale: 1.3,
+      },
+      {
+        kind: "component",
+        name: "Processor",
+        component: () => <ProcessorUnit status="green" />,
+        scale: 1.3,
+      },
+      {
+        kind: "component",
+        name: "Burner",
+        component: () => <BiomassBurner status="green" />,
+        scale: 1.3,
+      },
       { kind: "component", name: "Belt Running", component: BeltStraightRunning },
       { kind: "component", name: "Belt Stopped", component: BeltStraightStopped },
       { kind: "component", name: "Belt Curve", component: BeltCurveDemo },
@@ -442,34 +480,10 @@ const SECTIONS: Section[] = [
       { kind: "component", name: "Side Lamp", component: SideLampDemo, scale: 12 },
     ],
   },
-  {
-    label: "Modular Building — Examples",
-    entries: [
-      { kind: "component", name: "Power Plant", component: BuildingPowerPlant, scale: 1.3 },
-      { kind: "component", name: "Comm Tower", component: BuildingCommTower, scale: 1.3 },
-      { kind: "component", name: "Furnace", component: BuildingFurnace, scale: 1.3 },
-      { kind: "component", name: "Refinery", component: BuildingRefinery, scale: 1.4 },
-      { kind: "component", name: "Generator", component: BuildingGenerator, scale: 1.1 },
-      { kind: "component", name: "Drill Station", component: BuildingDrillStation, scale: 1.0 },
-      { kind: "component", name: "Logistics Hub", component: BuildingLogisticsHub, scale: 1.3 },
-      { kind: "component", name: "Cooling Station", component: BuildingCoolingStation, scale: 1.4 },
-    ],
-  },
-  {
-    label: "Building Presets",
-    entries: [
-      { kind: "component", name: "Biomass Burner", component: BiomassBurner, scale: 1.3 },
-      { kind: "component", name: "Ore Smelter", component: OreSmelter, scale: 1.1 },
-      { kind: "component", name: "Processor Unit", component: ProcessorUnit, scale: 1.3 },
-      { kind: "component", name: "Container Storage", component: ContainerStorage, scale: 1.3 },
-      { kind: "component", name: "Personal Box", component: PersonalBox, scale: 3 },
-    ],
-  },
 ];
 
 const COLS = 5;
 const SPACING = 2.8;
-const TARGET_HEIGHT = 1.2;
 
 /* ── Shared geometry ───────────────────────────────────────── */
 
@@ -546,13 +560,16 @@ function Slot({ x, z, entry }: { x: number; z: number; entry: Entry }) {
 /* ── Main viewer ───────────────────────────────────────────── */
 
 export function CharacterViewer() {
+  const visibleSections = SECTIONS.filter(
+    (section) => section.label !== "Modular Building — Parts",
+  );
   const items: (
     | { type: "section"; label: string; row: number }
     | { type: "entry"; entry: Entry; col: number; row: number }
   )[] = [];
   let currentRow = 0;
 
-  for (const section of SECTIONS) {
+  for (const section of visibleSections) {
     items.push({ type: "section", label: section.label, row: currentRow });
     currentRow++;
     for (const [i, entry] of section.entries.entries()) {

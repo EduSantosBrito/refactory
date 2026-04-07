@@ -1,9 +1,96 @@
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import type { Mesh, MeshStandardMaterial } from "three";
+import { MeshStandardMaterial } from "three";
+import type { Mesh } from "three";
 import { B, M } from "./palette";
-import { MechLeg } from "../MechLeg";
 import type { ModelProps } from "../colors";
+import { StatusPole, type StatusPoleStatus } from "../StatusPole";
+
+/* ── Chimney smoke — wispy rising plume ── */
+const SMOKE_COUNT = 12;
+
+/** Per-puff random drift stored at spawn time */
+type PuffState = { driftX: number; driftZ: number; riseSpeed: number };
+
+function ChimneySmoke() {
+  const refs = useRef<Mesh[]>([]);
+  const puffs = useRef<Map<number, PuffState>>(new Map());
+  const nextSpawn = useRef(0);
+  const nextIdx = useRef(0);
+
+  useFrame(({ clock }, delta) => {
+    for (let i = 0; i < refs.current.length; i++) {
+      const smoke = refs.current[i]!;
+      if (!smoke.visible) continue;
+      const p = puffs.current.get(i);
+      if (!p) continue;
+
+      // Smooth growth
+      smoke.scale.setScalar(smoke.scale.x + delta * 0.12);
+      // Rise at per-puff speed
+      smoke.position.y += delta * p.riseSpeed;
+      // Per-puff lateral drift + gentle wobble
+      smoke.position.x += delta * p.driftX;
+      smoke.position.z += delta * p.driftZ + Math.sin(clock.elapsedTime * 0.6 + i) * delta * 0.003;
+
+      if (smoke.material instanceof MeshStandardMaterial) {
+        smoke.material.opacity = Math.max(0, smoke.material.opacity - delta * 0.07);
+        if (smoke.material.opacity <= 0) {
+          smoke.visible = false;
+        }
+      }
+    }
+
+    // Spawn new wisp
+    if (clock.elapsedTime >= nextSpawn.current) {
+      const idx = nextIdx.current % SMOKE_COUNT;
+      const smoke = refs.current[idx];
+      if (smoke) {
+        const angle = Math.random() * Math.PI * 2;
+        const r = Math.random() * 0.025;
+        smoke.visible = true;
+        smoke.scale.setScalar(0.8 + Math.random() * 0.6);
+        smoke.position.set(
+          Math.cos(angle) * r,
+          0,
+          Math.sin(angle) * r,
+        );
+        puffs.current.set(idx, {
+          driftX: (Math.random() - 0.3) * 0.012,
+          driftZ: (Math.random() - 0.5) * 0.008,
+          riseSpeed: 0.025 + Math.random() * 0.02,
+        });
+        if (smoke.material instanceof MeshStandardMaterial) {
+          smoke.material.opacity = 0.3 + Math.random() * 0.15;
+        }
+      }
+      nextIdx.current = idx + 1;
+      nextSpawn.current = clock.elapsedTime + 0.3 + Math.random() * 0.4;
+    }
+  });
+
+  return (
+    <group>
+      {Array.from({ length: SMOKE_COUNT }, (_, i) => (
+        <mesh
+          key={`sm-${i}`}
+          ref={(el) => {
+            if (el) refs.current[i] = el;
+          }}
+          visible={false}
+        >
+          <sphereGeometry args={[0.03, 10, 8]} />
+          <meshStandardMaterial
+            color="#c0b8a8"
+            transparent
+            opacity={0}
+            depthWrite={false}
+          />
+        </mesh>
+      ))}
+    </group>
+  );
+}
 
 /**
  * Biomass Burner — "The Potbelly"
@@ -16,17 +103,34 @@ import type { ModelProps } from "../colors";
  */
 
 /* ── Layer heights ── */
-const LEG_H = 0.12;
 const FOUND_HALF = 0.025;
-const FOUND_Y = LEG_H + FOUND_HALF;
+const FOUND_Y = FOUND_HALF;
 const BELLY_Y = FOUND_Y + FOUND_HALF + 0.13;
 const CHIMNEY_BASE_Y = BELLY_Y + 0.06;
 
-export function BiomassBurner(props: ModelProps) {
+type BiomassBurnerProps = ModelProps & {
+  status?: StatusPoleStatus;
+};
+
+export function BiomassBurner({ status = "green", ...props }: BiomassBurnerProps) {
+  const glowActive = status === "green" || status === "yellow";
+  const smokeActive = status === "green";
+
   const glowRef = useRef<Mesh>(null);
   const glowRef2 = useRef<Mesh>(null);
 
   useFrame(() => {
+    if (!glowActive) {
+      if (glowRef.current) {
+        const mat = glowRef.current.material as MeshStandardMaterial;
+        mat.emissiveIntensity = 0;
+      }
+      if (glowRef2.current) {
+        const mat = glowRef2.current.material as MeshStandardMaterial;
+        mat.emissiveIntensity = 0;
+      }
+      return;
+    }
     const t = Date.now() * 0.004;
     if (glowRef.current) {
       const mat = glowRef.current.material as MeshStandardMaterial;
@@ -50,16 +154,6 @@ export function BiomassBurner(props: ModelProps) {
           <cylinderGeometry args={[0.31, 0.33, 0.012, 8]} />
           <meshStandardMaterial color={B.dark} {...M} roughness={0.65} />
         </mesh>
-
-        {/* 3× Tripod legs — asymmetric energy */}
-        {[0, 1, 2].map((i) => {
-          const a = (i / 3) * Math.PI * 2 + Math.PI / 6;
-          return (
-            <group key={`lg-${i}`} position={[Math.sin(a) * 0.20, 0, Math.cos(a) * 0.20]}>
-              <MechLeg direction={a} size="sm" variant="rounded" />
-            </group>
-          );
-        })}
       </group>
 
       {/* ── Belly — squashed sphere (the potbelly) ── */}
@@ -183,6 +277,13 @@ export function BiomassBurner(props: ModelProps) {
           <cylinderGeometry args={[0.065, 0.065, 0.008, 8]} />
           <meshStandardMaterial color={B.dark} {...M} roughness={0.6} />
         </mesh>
+
+        {/* Smoke rising from chimney */}
+        {smokeActive && (
+          <group position={[0.012, 0.31, 0]}>
+            <ChimneySmoke />
+          </group>
+        )}
       </group>
 
       {/* ── Air Blower — back left side ── */}
@@ -192,29 +293,15 @@ export function BiomassBurner(props: ModelProps) {
           <cylinderGeometry args={[0.05, 0.055, 0.04, 8]} />
           <meshStandardMaterial color={B.mid} {...M} roughness={0.6} />
         </mesh>
-        {/* Fan disc */}
-        <mesh position={[0, 0, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.04, 0.04, 0.005, 6]} />
-          <meshStandardMaterial color={B.light} {...M} roughness={0.5} />
-        </mesh>
         {/* Intake pipe */}
-        <mesh position={[0, 0, -0.04]}>
+        <mesh position={[0, 0.01, -0.04]}>
           <cylinderGeometry args={[0.025, 0.03, 0.04, 6]} />
-          <meshStandardMaterial color={B.dark} {...M} roughness={0.6} />
+          <meshStandardMaterial color={B.dark} {...M} roughness={0.6} polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} />
         </mesh>
       </group>
 
-      {/* ── Side Lamp — status indicator ── */}
-      <group position={[-0.18, BELLY_Y + 0.08, 0.08]} rotation={[0, -Math.PI * 0.3, 0]}>
-        <mesh>
-          <boxGeometry args={[0.02, 0.02, 0.012]} />
-          <meshStandardMaterial color={B.dark} {...M} roughness={0.65} />
-        </mesh>
-        <mesh position={[0, 0, 0.01]}>
-          <sphereGeometry args={[0.012, 8, 6]} />
-          <meshStandardMaterial color={B.warm} {...M} roughness={0.4} />
-        </mesh>
-      </group>
+      {/* ── StatusPole — on top of hopper ── */}
+      <StatusPole position={[-0.10, BELLY_Y + 0.215, 0.08]} scale={0.2} status={status} />
     </group>
   );
 }

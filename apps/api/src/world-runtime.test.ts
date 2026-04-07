@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { ActorContext } from "@refactory/contracts/auth";
 import type { WorldRuntimeSnapshot } from "@refactory/contracts/runtime";
-import { applyWorldCommand, executeTransport, progressMachineWork } from "./world-runtime.ts";
+import { applyWorldCommand, executeTransport, progressMachineWork, recomputePowerState } from "./world-runtime.ts";
 
 const actor: ActorContext = {
   displayName: "Host",
@@ -36,6 +36,7 @@ const baseSnapshot = (): WorldRuntimeSnapshot => ({
     },
   ],
   deltaSequence: 0,
+  generators: [],
   inventories: [{ actorPublicKey: actor.publicKey, assetId: "BAR-001", containerId: "asset:BAR-001:inventory" }],
   lastTickAt: "2026-04-06T00:00:00.000Z",
   machines: [],
@@ -82,6 +83,7 @@ const baseSnapshot = (): WorldRuntimeSnapshot => ({
       removable: false,
     },
   ],
+  powerNetworks: [],
   runtimeVersion: 2,
   tick: 0,
   tiles: buildTiles(),
@@ -470,4 +472,270 @@ test("executeTransport delivers to modular storage and updates quota", () => {
     reserved: 1,
   });
   expect(lane.items).toEqual([]);
+});
+
+test("TakeFromContainer rejects manual withdrawal from machine input", () => {
+  const snapshot: WorldRuntimeSnapshot = {
+    ...baseSnapshot(),
+    containers: [
+      ...baseSnapshot().containers,
+      {
+        _tag: "TypedContainer",
+        acceptedItemIds: ["iron_ore"],
+        capacity: 200,
+        containerId: "machine:smelter:input",
+        entries: [{ itemId: "iron_ore", quantity: 1 }],
+        owner: { kind: "entity", ownerId: "smelter-1", role: "machine_input" },
+      },
+    ],
+  };
+
+  const result = applyWorldCommand(snapshot, actor, {
+    _tag: "TakeFromContainer",
+    commandId: "00000000-0000-0000-0000-000000000021",
+    fromContainerId: "machine:smelter:input",
+    itemId: "iron_ore",
+    quantity: 1,
+  });
+
+  expect(result.pendingReceipt).toEqual({
+    _tag: "rejected",
+    commandId: "00000000-0000-0000-0000-000000000021",
+    message: "machine:smelter:input does not allow manual withdrawal",
+    reasonCode: "invalid_target",
+  });
+});
+
+test("InsertFuel moves wood into a burner fuel buffer", () => {
+  const snapshot: WorldRuntimeSnapshot = {
+    ...withInventoryStack(baseSnapshot(), 0, "wood", 2),
+    containers: [
+      ...(withInventoryStack(baseSnapshot(), 0, "wood", 2).containers),
+      {
+        _tag: "TypedContainer",
+        acceptedItemIds: ["wood"],
+        capacity: 200,
+        containerId: "entity:burner-1:fuel",
+        entries: [],
+        owner: { kind: "entity", ownerId: "burner-1", role: "burner_fuel" },
+      },
+    ],
+    generators: [
+      {
+        currentOutputMw: 0,
+        fuelBurnProgress: 0,
+        fuelContainerId: "entity:burner-1:fuel",
+        generatorId: "burner-1",
+        kind: "burner_v1",
+        maxCapacityMw: 30,
+        objectId: "burner-1",
+        powerRadius: 4,
+        status: "out_of_fuel",
+      },
+    ],
+    objects: [...(baseSnapshot().objects ?? []), {
+      buildableId: "burner_v1",
+      containerIds: ["entity:burner-1:fuel"],
+      fixed: false,
+      objectId: "burner-1",
+      origin: { x: 4, y: 4 },
+      removable: true,
+      rotation: "east",
+    }],
+  };
+
+  const result = applyWorldCommand(snapshot, actor, {
+    _tag: "InsertFuel",
+    commandId: "00000000-0000-0000-0000-000000000022",
+    fuelItemId: "wood",
+    fromContainerId: "asset:BAR-001:inventory",
+    machineId: "burner-1",
+    quantity: 1,
+  });
+
+  expect(result.pendingReceipt._tag).toBe("accepted");
+  const fuelContainer = result.snapshot.containers.find((container) => container.containerId === "entity:burner-1:fuel");
+
+  expect(fuelContainer).toBeDefined();
+  if (fuelContainer === undefined || fuelContainer._tag !== "TypedContainer") {
+    throw new Error("expected burner fuel container");
+  }
+
+  expect(fuelContainer.entries).toEqual([{ itemId: "wood", quantity: 1 }]);
+});
+
+test("recomputePowerState powers machines and trips overloaded networks until restart", () => {
+  const snapshot: WorldRuntimeSnapshot = {
+    ...baseSnapshot(),
+    containers: [
+      ...baseSnapshot().containers,
+      {
+        _tag: "TypedContainer",
+        acceptedItemIds: ["wood"],
+        capacity: 200,
+        containerId: "entity:burner-1:fuel",
+        entries: [{ itemId: "wood", quantity: 1 }],
+        owner: { kind: "entity", ownerId: "burner-1", role: "burner_fuel" },
+      },
+      {
+        _tag: "TypedContainer",
+        acceptedItemIds: ["iron_ingot"],
+        capacity: 200,
+        containerId: "entity:processor-1:input",
+        entries: [{ itemId: "iron_ingot", quantity: 2 }],
+        owner: { kind: "entity", ownerId: "processor-1", role: "machine_input" },
+      },
+      {
+        _tag: "TypedContainer",
+        acceptedItemIds: ["iron_plate"],
+        capacity: 200,
+        containerId: "entity:processor-1:output",
+        entries: [],
+        owner: { kind: "entity", ownerId: "processor-1", role: "machine_output" },
+      },
+      {
+        _tag: "TypedContainer",
+        acceptedItemIds: ["iron_ore"],
+        capacity: 200,
+        containerId: "entity:smelter-1:input",
+        entries: [{ itemId: "iron_ore", quantity: 1 }],
+        owner: { kind: "entity", ownerId: "smelter-1", role: "machine_input" },
+      },
+      {
+        _tag: "TypedContainer",
+        acceptedItemIds: ["iron_ingot"],
+        capacity: 200,
+        containerId: "entity:smelter-1:output",
+        entries: [],
+        owner: { kind: "entity", ownerId: "smelter-1", role: "machine_output" },
+      },
+      {
+        _tag: "TypedContainer",
+        acceptedItemIds: ["iron_ore"],
+        capacity: 200,
+        containerId: "entity:miner-1:output",
+        entries: [],
+        owner: { kind: "entity", ownerId: "miner-1", role: "machine_output" },
+      },
+    ] ,
+    generators: [
+      {
+        currentOutputMw: 0,
+        fuelBurnProgress: 0,
+        fuelContainerId: "entity:burner-1:fuel",
+        generatorId: "burner-1",
+        kind: "burner_v1",
+        maxCapacityMw: 30,
+        objectId: "burner-1",
+        powerRadius: 4,
+        status: "out_of_fuel",
+      },
+    ],
+    machines: [
+      {
+        inputContainerIds: ["entity:processor-1:input"],
+        kind: "processor",
+        machineId: "processor-1",
+        objectId: "processor-1",
+        outputContainerIds: ["entity:processor-1:output"],
+        powerState: "disconnected",
+        progress: 0,
+        recipeId: "iron_plate",
+        status: "idle",
+      },
+      {
+        inputContainerIds: [],
+        kind: "miner_v1",
+        machineId: "miner-1",
+        objectId: "miner-1",
+        outputContainerIds: ["entity:miner-1:output"],
+        powerState: "disconnected",
+        progress: 0,
+        recipeId: "iron_ore",
+        status: "idle",
+      },
+      {
+        inputContainerIds: ["entity:smelter-1:input"],
+        kind: "smelter_v1",
+        machineId: "smelter-1",
+        objectId: "smelter-1",
+        outputContainerIds: ["entity:smelter-1:output"],
+        powerState: "disconnected",
+        progress: 0,
+        recipeId: "iron_ingot",
+        status: "idle",
+      },
+    ],
+    objects: [
+      ...(baseSnapshot().objects ?? []),
+      {
+        buildableId: "burner_v1",
+        containerIds: ["entity:burner-1:fuel"],
+        fixed: false,
+        objectId: "burner-1",
+        origin: { x: 4, y: 4 },
+        removable: true,
+        rotation: "east",
+      },
+      {
+        buildableId: "processor",
+        containerIds: ["entity:processor-1:input", "entity:processor-1:output"],
+        fixed: false,
+        machineId: "processor-1",
+        objectId: "processor-1",
+        origin: { x: 5, y: 4 },
+        removable: true,
+        rotation: "east",
+      },
+      {
+        buildableId: "miner_v1",
+        containerIds: ["entity:miner-1:output"],
+        fixed: false,
+        machineId: "miner-1",
+        objectId: "miner-1",
+        origin: { x: 5, y: 5 },
+        removable: true,
+        rotation: "east",
+      },
+      {
+        buildableId: "smelter_v1",
+        containerIds: ["entity:smelter-1:input", "entity:smelter-1:output"],
+        fixed: false,
+        machineId: "smelter-1",
+        objectId: "smelter-1",
+        origin: { x: 4, y: 5 },
+        removable: true,
+        rotation: "east",
+      },
+    ],
+  };
+
+  const tripped = recomputePowerState(snapshot).snapshot;
+  expect(tripped.powerNetworks[0]?.status).toBe("tripped");
+  expect(tripped.machines.every((machine) => machine.powerState === "unpowered")).toBe(true);
+
+  const restarted = applyWorldCommand(tripped, actor, {
+    _tag: "RestartPowerNetwork",
+    commandId: "00000000-0000-0000-0000-000000000023",
+    objectId: "burner-1",
+  }).snapshot;
+  const afterRestart = recomputePowerState(restarted).snapshot;
+
+  expect(afterRestart.powerNetworks[0]?.status).toBe("tripped");
+
+  const relieved: WorldRuntimeSnapshot = {
+    ...restarted,
+    machines: restarted.machines.filter((machine) => machine.machineId !== "smelter-1" && machine.machineId !== "miner-1"),
+    objects: restarted.objects?.filter((object) => object.objectId !== "smelter-1" && object.objectId !== "miner-1"),
+    containers: restarted.containers.filter((container) => !container.containerId.startsWith("entity:smelter-1") && !container.containerId.startsWith("entity:miner-1")),
+  };
+  const restartedAgain = applyWorldCommand(relieved, actor, {
+    _tag: "RestartPowerNetwork",
+    commandId: "00000000-0000-0000-0000-000000000024",
+    objectId: "burner-1",
+  }).snapshot;
+  const energized = recomputePowerState(restartedAgain).snapshot;
+
+  expect(energized.powerNetworks[0]?.status).toBe("energized");
+  expect(energized.machines[0]?.powerState).toBe("connected");
 });

@@ -21,6 +21,12 @@ It is based on:
 
 This is the design for the runtime backend, not the UI.
 
+Design ownership is split like this:
+
+- `GAME_DESIGN.md` owns gameplay goals, tier structure, narrative triggers, and tuning values such as machine throughput, machine MW draw, generator MW output, and target friction.
+- `BACKEND_DESIGN.md` owns authoritative runtime mechanics, command semantics, persistence, replication, and transport.
+- When this document depends on concrete balance numbers, it should reference `GAME_DESIGN.md` instead of duplicating the values.
+
 It assumes:
 
 - world creation already exists
@@ -36,8 +42,12 @@ These are now locked unless we discover a major contradiction.
 - Initial target tick rate is `10 Hz`.
 - Clients render visuals smoothly between server updates.
 - Clients do not invent factory truth locally.
+- Snapshot fetch, world creation, and other non-latency-sensitive control-plane actions use HTTP.
+- Latency-sensitive world interaction uses one authenticated duplex websocket per joined world session.
 - World mutations are expressed as commands, not client-side state patches.
 - Runtime state uses stable world-local object ids.
+- Conflicting commands resolve by authoritative server enqueue order inside the per-world queue.
+- `commandId` is idempotent per actor and world.
 - Most player-built buildings occupy `1` grid tile plus a cardinal facing.
 - Ports are defined in local space and rotate with building facing.
 - Items are discrete whole units.
@@ -50,15 +60,25 @@ These are now locked unless we discover a major contradiction.
 - Player inventory and general storage are slot/stack based.
 - Machine buffers are process-oriented typed/count buffers.
 - Inter-object transfer is mostly pull/accept based.
+- Manual gameplay transfers still use the same atomic transfer model, but legal source/target roles are restricted by gameplay rules.
 - Machines block when output is full.
+- Power uses both coverage and total generation capacity.
+- Generators and poles project powered ranges onto tiles.
+- Overlapping powered ranges form one continuous energized network.
+- Only currently running machines consume power in v1.
+- If active machine demand exceeds current generated supply, the whole connected network trips.
+- A tripped network stays down until a player explicitly restarts it, and a bad restart may trip again immediately.
+- Burners scale fuel burn to current production demand instead of always burning at max rate.
 - Delivery quota progress increments when modular storage accepts valid items.
 - Quota-counted items remain reserved in modular storage in v1.
 - Players do not withdraw accepted quota items in v1.
-- The handcrafted map instantiates fixed fixtures like resource nodes and modular storage.
+- Shipment launch is a separate progression action, not the moment quota counts.
+- The handcrafted map is data-driven and instantiates fixed fixtures like resource nodes, modular storage anchors, and environmental validation zones.
 - Grid tiles carry altitude, and belt steps may change altitude by at most `1` per adjacent move.
 - Modular storage is a fixed world object with `4` input ports in v1.
-- Joining a world uses a full runtime snapshot.
-- Ongoing sync uses deltas after the snapshot.
+- Joining or resyncing a world uses a full runtime snapshot fetched over HTTP.
+- Ongoing sync uses websocket deltas after the snapshot.
+- Any missed delta sequence triggers full snapshot resync.
 - Runtime state survives restarts via periodic checkpoints.
 - The simulation should be implemented with domain modules, not a generic ECS-first engine.
 
@@ -200,6 +220,18 @@ Recommended split:
 
 This matches game semantics better than making every machine behave like a backpack.
 
+Gameplay legality matrix for v1:
+
+- manual put is allowed only into `machine_input` and `burner_fuel`
+- manual take is allowed from ordinary containers and machine output buffers
+- manual put is forbidden into `machine_output`
+- manual put is forbidden into `quota_storage`
+- manual take is forbidden from `quota_storage`
+- manual insertion into machine input must respect the machine's currently selected recipe
+- manual insertion into fuel buffers must respect that generator's accepted fuel rules
+
+This keeps one backend transfer primitive while still preserving the intended automation loop.
+
 ## Machine Rules
 
 Each processing machine should have:
@@ -225,6 +257,75 @@ This is required for:
 - honest throughput
 - useful efficiency metrics
 - deterministic sync
+
+Additional v1 rules:
+
+- single-recipe machines auto-configure on placement
+- multi-recipe machines require explicit recipe selection before accepting manual input
+- changing recipe clears incompatible buffered contents into the acting player's inventory when possible
+- recipe-change overflow is destroyed if the acting inventory cannot hold it
+- recipe changes cancel partial work progress
+
+## Power Network Rules
+
+Exact generator stats and machine MW draws live in `GAME_DESIGN.md`.
+This section defines the simulation rules.
+
+The runtime power model is coverage plus capacity.
+
+Core model:
+
+- every active generator contributes current power production and a powered radius
+- every power pole contributes only a relay radius and never consumes or generates power in v1
+- a pole becomes energized when its relay radius touches tiles already energized by an active generator or another energized pole
+- an energized pole then relays power onward through its own radius
+- overlapping source and relay ranges merge into one continuous powered network
+- a machine is powered only if its tile lies inside an energized range chain that traces back to at least one active generator
+- separate energized islands are separate power networks and trip independently
+
+Consumers and demand:
+
+- only currently running machines consume power in v1
+- idle machines consume `0`
+- blocked machines consume `0`
+- belts, poles, modular storage, starter boxes, and ordinary containers consume `0`
+- the runtime should expose at least these power-read values per network:
+  - current production
+  - current consumption
+  - max potential consumption
+  - max potential capacity
+
+Failure model:
+
+- overload is checked against currently active demand, not hypothetical full-factory load
+- if current active demand exceeds current generated supply, the whole network enters `tripped`
+- when a network is `tripped`, all machines on that network become unpowered and stop progressing
+- the backend does not use brownout scaling in v1
+- restart is an explicit command or interaction
+- a player may attempt restart at any time
+- if the network still lacks enough production after restart, it may come back briefly and trip again on the next power evaluation
+
+Generator families in v1:
+
+- all generator tiers share the same network semantics
+- `Burner v1` uses fuel, contributes capacity only while it has valid fuel, and scales fuel burn to actual current production demand
+- wind can be placed on any buildable tile, produces low unattended power, and uses a short radius
+- heat is placement-gated by valid heat spots defined by the map contract
+- coal and nuclear use proximity-gated water validation from map zones in v1 rather than fluid logistics
+
+## Map Data Rules
+
+The map is handcrafted, but runtime bootstrap must still be data-driven.
+
+Recommended map contract shape:
+
+- tile grid with buildability and altitude
+- fixed point anchors for mineral nodes, modular storage, starter locations, and other fixed world objects
+- environmental zones for placement validation such as water and heat
+- world metadata such as spawn/reference points if needed
+
+Do not hardcode fixed resource nodes or modular storage positions in the runtime service.
+The runtime should derive them from the authoritative map contract selected by `mapId`.
 
 ## Belt Rules
 
@@ -258,8 +359,12 @@ The graph model is the right middle ground because the design needs:
 - Non-miner buildings can be placed on any empty buildable tile.
 - Miners can be placed only on compatible resource-node anchor tiles.
 - One resource-node anchor supports exactly one miner.
-- Fixed map fixtures like resource nodes and modular storage come from the handcrafted map snapshot.
+- Wind generators can be placed on any empty buildable tile in v1.
+- Heat generators can be placed only on valid heat zones.
+- Coal and nuclear generators validate nearby water by map zone proximity in v1.
+- Fixed map fixtures like resource nodes and modular storage come from the handcrafted map contract.
 - Modular storage is fixed in v1, is not player-buildable or removable, and exposes one input port on each cardinal side.
+- Map validation primitives should use both point anchors and zones.
 - Grid tiles include altitude metadata.
 
 ## Belt Construction Rules
@@ -318,6 +423,15 @@ For v1:
 - modular storage is input-only
 - accepted quota items remain reserved there
 - players do not withdraw them again
+- modular storage accepts only items currently required by the active quota/tier
+- once the quota for an item is met, modular storage stops accepting more of that item
+- extra production should back up naturally unless the player routes it elsewhere
+
+Quota counting and shipment launch are separate concepts:
+
+- quota progress increments at storage acceptance time
+- shipment launch is a later progression action that consumes already reserved quota items
+- `DeliverQuota` is not a hot-path per-item gameplay command in v1
 
 This keeps these truths aligned:
 
@@ -332,9 +446,10 @@ This keeps these truths aligned:
 - Removing a belt run destroys the in-flight items on that belt run.
 - Removing a non-belt building transfers its stored contents to the acting player's inventory.
 - If that inventory cannot hold all returned contents, overflow is destroyed.
-- The first destroy action in a world should trigger a Voss joke/call.
+- The first successful destroy action in a world should trigger one shared Voss joke/call for all connected players and never repeat.
 - Players may manually insert items only into input or fuel buffers.
 - Manual insertion must respect the machine's current recipe or fuel rules.
+- Players may not manually insert or withdraw quota-reserved modular storage contents.
 - Single-recipe machines auto-configure on placement.
 - Multi-recipe machines require explicit recipe selection.
 - Changing a machine recipe moves incompatible buffered contents to the acting player's inventory.
@@ -366,8 +481,16 @@ All player mutations should enter a per-world command queue.
 The server then:
 
 - resolves them at tick boundaries
-- applies them in deterministic order
+- applies them in deterministic server enqueue order
 - rejects losers when commands conflict
+
+Ordering and retries:
+
+- each accepted queued command gets a world-local enqueue sequence number
+- lower enqueue sequence wins conflicts inside the same tick
+- retries must not duplicate side effects
+- if the same actor resubmits the same `commandId` with the same payload in the same world, the backend should return the original result
+- if the same `commandId` is reused with a different payload, the backend should reject it as an idempotency conflict
 
 Example:
 
@@ -395,7 +518,7 @@ Checkpoint data should include at least:
 - container contents
 - machine progress
 - belt lane contents and positions
-- power/network state if needed
+- power/network state, including trip state and restart-relevant data
 - quota/tutorial progress
 - any reserved delivery contents
 
@@ -403,13 +526,54 @@ Checkpoint data should include at least:
 
 Clients should sync like this:
 
-1. full runtime snapshot on join/resync
-2. deltas after that
-3. local interpolation between deltas
+1. fetch full runtime snapshot over HTTP on join or resync
+2. open the authenticated world websocket bound to that snapshot sequence
+3. apply runtime deltas and command receipts from the websocket
+4. locally interpolate presentation between authoritative deltas
 
 Do not stream full world snapshots every tick.
 
 That will not scale once factories and belts grow.
+
+Gap handling:
+
+- deltas are applied only if `deltaSequence` is exactly the next expected value
+- if any delta is missed, duplicated out of order, or otherwise creates a sequence gap, the client should discard incremental assumptions and refetch the full snapshot
+- v1 should prefer snapshot resync over server-side delta-history replay
+
+## Realtime Protocol Model
+
+The world websocket is the latency-sensitive runtime plane.
+
+Session shape:
+
+- one duplex websocket per joined world session
+- authenticate at handshake time using the same signed actor identity model as the HTTP API
+- bind the socket to one actor and one world after successful auth
+- snapshot fetch still happens over HTTP before or during socket establishment
+
+Client-to-server messages should use an explicit tagged union.
+Minimum message families should include:
+
+- world socket authentication / bind
+- command submission
+- heartbeat or liveness if needed
+
+Server-to-client messages should also use an explicit tagged union.
+Minimum message families should include:
+
+- queued command acknowledgment
+- authoritative command receipt
+- runtime delta
+- resync-required / sequence-gap recovery signal
+- boundary error message
+
+Command flow:
+
+- submitting a command over websocket should produce a fast queued acknowledgment when the transport/session accepts it
+- authoritative success or rejection still occurs later at the tick boundary
+- clients must correlate both phases by `commandId`
+- websocket command submission does not bypass the deterministic tick queue
 
 ## Suggested Runtime Modules
 
@@ -448,7 +612,7 @@ Use these for:
 - auth
 - world creation
 - snapshot fetch
-- command submission
+- shipment launch and other non-latency-sensitive progression actions
 - admin/debug endpoints
 - docs generation
 
@@ -463,8 +627,8 @@ References:
 - `effect-smol/packages/effect/HTTPAPI.md`
 - `effect-smol/packages/effect/test/unstable/httpapi/HttpApiClient.test.ts`
 
-Do not use `HttpApi` as the primary high-frequency world replication channel.
-It is the control plane, not the sim transport.
+Do not use `HttpApi` as the primary high-frequency world replication or latency-sensitive command channel.
+It is the control plane, not the hot runtime transport.
 
 ### Contracts and wire types
 
@@ -684,6 +848,7 @@ References:
 Use:
 
 - websocket transport for high-frequency runtime deltas
+- websocket transport for latency-sensitive world commands and their receipts
 
 Effect-side reference:
 
@@ -696,7 +861,9 @@ References:
 Guideline:
 
 - keep `HttpApi` as control plane
-- use a realtime transport for world-state delta streaming
+- use a realtime transport for world-state delta streaming and latency-sensitive runtime commands
+- keep the socket protocol schema-defined with explicit tagged unions
+- bind sockets at handshake time to authenticated actor/world context
 
 ### SQL and persistence
 
@@ -796,10 +963,9 @@ Examples:
 - `PlaceBeltRun`
 - `RemoveBeltRun`
 - `TransferItems`
-- `InsertFuel`
 - `SetMachineRecipe`
 - `TakeFromContainer`
-- `DeliverQuota`
+- `RestartPowerNetwork`
 - `AdvanceBossChat`
 - `VoteSkipBossChat`
 

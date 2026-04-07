@@ -8,6 +8,7 @@
     "./auth": "./src/auth.ts",
     "./commands": "./src/commands.ts",
     "./runtime": "./src/runtime.ts",
+    "./socket": "./src/socket.ts",
     "./worlds": "./src/worlds.ts"
   },
   "scripts": {

@@ -17,11 +17,13 @@ export const WorldCommandRejectionCode = Schema.Literals([
   "access_denied",
   "container_full",
   "container_missing",
+  "idempotency_conflict",
   "insufficient_items",
   "invalid_command",
-  "invalid_location",
+   "invalid_location",
   "invalid_target",
   "item_not_accepted",
+  "network_missing",
   "no_actor_inventory",
   "object_missing",
   "object_not_removable",
@@ -109,6 +111,7 @@ export const RuntimeMachine = Schema.Struct({
   inputContainerIds: Schema.Array(ContainerId),
   kind: Schema.String.check(Schema.isMinLength(1)),
   machineId: MachineId,
+  networkId: Schema.optional(Schema.String.check(Schema.isMinLength(1))),
   objectId: Schema.optional(RuntimeObjectId),
   outputContainerIds: Schema.Array(ContainerId),
   powerState: RuntimeMachinePowerState,
@@ -117,6 +120,39 @@ export const RuntimeMachine = Schema.Struct({
   status: RuntimeMachineStatus,
 });
 export type RuntimeMachine = Schema.Schema.Type<typeof RuntimeMachine>;
+
+export const RuntimeGeneratorStatus = Schema.Literals(["idle", "out_of_fuel", "running", "tripped"]);
+export type RuntimeGeneratorStatus = Schema.Schema.Type<typeof RuntimeGeneratorStatus>;
+
+export const RuntimeGenerator = Schema.Struct({
+  currentOutputMw: NonNegativeFinite,
+  fuelBurnProgress: NonNegativeFinite,
+  fuelContainerId: ContainerId,
+  generatorId: Schema.String.check(Schema.isMinLength(1)),
+  kind: Schema.String.check(Schema.isMinLength(1)),
+  maxCapacityMw: NonNegativeFinite,
+  networkId: Schema.optional(Schema.String.check(Schema.isMinLength(1))),
+  objectId: RuntimeObjectId,
+  powerRadius: NonNegativeInt,
+  status: RuntimeGeneratorStatus,
+});
+export type RuntimeGenerator = Schema.Schema.Type<typeof RuntimeGenerator>;
+
+export const RuntimePowerNetworkStatus = Schema.Literals(["energized", "tripped"]);
+export type RuntimePowerNetworkStatus = Schema.Schema.Type<typeof RuntimePowerNetworkStatus>;
+
+export const RuntimePowerNetwork = Schema.Struct({
+  currentConsumption: NonNegativeFinite,
+  currentProduction: NonNegativeFinite,
+  energizedTiles: Schema.Array(GridCoordinate),
+  maxPotentialCapacity: NonNegativeFinite,
+  maxPotentialConsumption: NonNegativeFinite,
+  memberObjectIds: Schema.Array(RuntimeObjectId),
+  networkId: Schema.String.check(Schema.isMinLength(1)),
+  restartRequested: Schema.Boolean,
+  status: RuntimePowerNetworkStatus,
+});
+export type RuntimePowerNetwork = Schema.Schema.Type<typeof RuntimePowerNetwork>;
 
 export const RuntimeLaneItem = Schema.Struct({
   itemId: Schema.String.check(Schema.isMinLength(1)),
@@ -207,12 +243,14 @@ export type RuntimeInventoryBinding = Schema.Schema.Type<typeof RuntimeInventory
 export const WorldRuntimeSnapshot = Schema.Struct({
   containers: Schema.Array(RuntimeContainer),
   deltaSequence: NonNegativeInt,
+  generators: Schema.Array(RuntimeGenerator),
   inventories: Schema.Array(RuntimeInventoryBinding),
   lastTickAt: Schema.String,
   machines: Schema.Array(RuntimeMachine),
   mode: WorldMode,
   observers: RuntimeObservers,
   objects: Schema.optional(Schema.Array(RuntimePlacedObject)),
+  powerNetworks: Schema.Array(RuntimePowerNetwork),
   runtimeVersion: PositiveInt,
   tick: NonNegativeInt,
   tiles: Schema.optional(Schema.Array(RuntimeMapTile)),
@@ -245,6 +283,30 @@ export const MachineRemovedChange = Schema.Struct({
   machineId: MachineId,
 });
 export type MachineRemovedChange = Schema.Schema.Type<typeof MachineRemovedChange>;
+
+export const GeneratorChangedChange = Schema.Struct({
+  _tag: Schema.Literal("GeneratorChanged"),
+  generator: RuntimeGenerator,
+});
+export type GeneratorChangedChange = Schema.Schema.Type<typeof GeneratorChangedChange>;
+
+export const GeneratorRemovedChange = Schema.Struct({
+  _tag: Schema.Literal("GeneratorRemoved"),
+  generatorId: Schema.String.check(Schema.isMinLength(1)),
+});
+export type GeneratorRemovedChange = Schema.Schema.Type<typeof GeneratorRemovedChange>;
+
+export const PowerNetworkChangedChange = Schema.Struct({
+  _tag: Schema.Literal("PowerNetworkChanged"),
+  network: RuntimePowerNetwork,
+});
+export type PowerNetworkChangedChange = Schema.Schema.Type<typeof PowerNetworkChangedChange>;
+
+export const PowerNetworkRemovedChange = Schema.Struct({
+  _tag: Schema.Literal("PowerNetworkRemoved"),
+  networkId: Schema.String.check(Schema.isMinLength(1)),
+});
+export type PowerNetworkRemovedChange = Schema.Schema.Type<typeof PowerNetworkRemovedChange>;
 
 export const TransportLaneChangedChange = Schema.Struct({
   _tag: Schema.Literal("TransportLaneChanged"),
@@ -295,9 +357,13 @@ export const WorldRuntimeChange = Schema.Union([
   TickAdvancedChange,
   ContainerChangedChange,
   ContainerRemovedChange,
+  GeneratorChangedChange,
+  GeneratorRemovedChange,
   MachineChangedChange,
   MachineRemovedChange,
   ObserversChangedChange,
+  PowerNetworkChangedChange,
+  PowerNetworkRemovedChange,
   CommandProcessedChange,
   RuntimeObjectChangedChange,
   RuntimeObjectRemovedChange,

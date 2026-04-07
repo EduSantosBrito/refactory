@@ -81,15 +81,6 @@ export const TakeFromContainerCommand = Schema.Struct({
 });
 export type TakeFromContainerCommand = Schema.Schema.Type<typeof TakeFromContainerCommand>;
 
-export const DeliverQuotaCommand = Schema.Struct({
-  _tag: Schema.Literal("DeliverQuota"),
-  commandId: WorldCommandId,
-  itemId: Schema.String.check(Schema.isMinLength(1)),
-  quantity: PositiveInt,
-  sourceContainerId: ContainerId,
-});
-export type DeliverQuotaCommand = Schema.Schema.Type<typeof DeliverQuotaCommand>;
-
 export const SetMachineRecipeCommand = Schema.Struct({
   _tag: Schema.Literal("SetMachineRecipe"),
   commandId: WorldCommandId,
@@ -97,6 +88,13 @@ export const SetMachineRecipeCommand = Schema.Struct({
   recipeId: Schema.String.check(Schema.isMinLength(1)),
 });
 export type SetMachineRecipeCommand = Schema.Schema.Type<typeof SetMachineRecipeCommand>;
+
+export const RestartPowerNetworkCommand = Schema.Struct({
+  _tag: Schema.Literal("RestartPowerNetwork"),
+  commandId: WorldCommandId,
+  objectId: RuntimeObjectId,
+});
+export type RestartPowerNetworkCommand = Schema.Schema.Type<typeof RestartPowerNetworkCommand>;
 
 export const AdvanceBossChatCommand = Schema.Struct({
   _tag: Schema.Literal("AdvanceBossChat"),
@@ -119,8 +117,8 @@ export const WorldCommand = Schema.Union([
   TransferItemsCommand,
   InsertFuelCommand,
   TakeFromContainerCommand,
-  DeliverQuotaCommand,
   SetMachineRecipeCommand,
+  RestartPowerNetworkCommand,
   AdvanceBossChatCommand,
   VoteSkipBossChatCommand,
 ]);

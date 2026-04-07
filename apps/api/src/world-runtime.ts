@@ -4,6 +4,7 @@ import type {
   PlaceBuildingCommand,
   RemoveBeltRunCommand,
   RemoveBuildingCommand,
+  RestartPowerNetworkCommand,
   SetMachineRecipeCommand,
   TakeFromContainerCommand,
   TransferItemsCommand,
@@ -16,12 +17,14 @@ import type {
   GridCoordinate,
   RuntimeContainer,
   RuntimeDeliveryQuota,
+  RuntimeGenerator,
   RuntimeInventoryBinding,
   RuntimeItemStack,
   RuntimeMapTile,
   RuntimeObservers,
   RuntimePathTile,
   RuntimePlacedObject,
+  RuntimePowerNetwork,
   SlotContainer,
   TypedContainer,
   WorldRuntimeCheckpoint,
@@ -37,6 +40,7 @@ import { WorldAccessDeniedError, WorldNotFoundError } from "@refactory/contracts
 import { Clock, Deferred, Effect, Layer, Option, PubSub, Queue, Ref, ServiceMap, Stream, SubscriptionRef, SynchronizedRef } from "effect";
 import {
   findBuildableDefinition,
+  findGeneratorDefinition,
   findMachineDefinition,
   findMachineRecipe,
   inputAcceptedItemIdsForKind,
@@ -45,6 +49,7 @@ import {
   outputAcceptedItemIdsForKind,
   type PortDefinition,
 } from "./game-constants.ts";
+import { getRuntimeMapContract } from "./maps.ts";
 import { RuntimeCheckpointStore } from "./world-runtime-checkpoints.ts";
 import { WorldRepository } from "./worlds.ts";
 
@@ -52,44 +57,9 @@ const commandQueueCapacity = 256;
 const checkpointEveryTicks = 50;
 const hostInventorySlotCount = 24;
 const tickInterval = "100 millis";
+const defaultRuntimeMapContract = getRuntimeMapContract("GPY-7");
 
-type ResourceNodeSpec = {
-  readonly buildableId: string;
-  readonly minedItemId: string;
-  readonly nodeId: string;
-  readonly origin: GridCoordinate;
-};
-
-const mapWidth = 12;
-const mapHeight = 12;
 const modularStorageObjectId = "system:modular-storage-object";
-const starterBoxAnchor = { x: 6, y: 7 };
-
-const fixedResourceNodes: ReadonlyArray<ResourceNodeSpec> = [
-  {
-    buildableId: "iron_node_impure",
-    minedItemId: "iron_ore",
-    nodeId: "node:iron:1",
-    origin: { x: 2, y: 5 },
-  },
-  {
-    buildableId: "iron_node_impure",
-    minedItemId: "iron_ore",
-    nodeId: "node:iron:2",
-    origin: { x: 2, y: 8 },
-  },
-];
-
-const fixedStorageOrigin = { x: 9, y: 5 };
-
-const buildMapTiles = (): Array<RuntimeMapTile> =>
-  Array.from({ length: mapHeight }, (_, y) =>
-    Array.from({ length: mapWidth }, (_, x): RuntimeMapTile => ({
-      altitude: x >= 10 && y >= 2 && y <= 9 ? 1 : 0,
-      buildable: true,
-      coordinate: { x, y },
-    }))
-  ).flat();
 
 const rotateFacing = (facing: Facing, rotation: Facing): Facing => {
   switch (rotation) {
@@ -148,6 +118,31 @@ const machineInputContainerId = (objectId: string) => `entity:${objectId}:input`
 const machineOutputContainerId = (objectId: string) => `entity:${objectId}:output`;
 const burnerFuelContainerId = (objectId: string) => `entity:${objectId}:fuel`;
 
+const createRuntimeGenerator = (
+  buildableId: string,
+  objectId: string,
+  fuelContainerId: string,
+): RuntimeGenerator | undefined => {
+  const generator = findGeneratorDefinition(buildableId);
+
+  if (generator === undefined) {
+    return undefined;
+  }
+
+  return {
+    currentOutputMw: 0,
+    fuelBurnProgress: 0,
+    fuelContainerId,
+    generatorId: objectId,
+    kind: buildableId,
+    maxCapacityMw: generator.maxCapacityMw,
+    networkId: undefined,
+    objectId,
+    powerRadius: generator.powerRadius,
+    status: "out_of_fuel",
+  };
+};
+
 const createPlacedBuildable = (
   buildableId: string,
   objectId: string,
@@ -173,6 +168,7 @@ const createPlacedBuildable = (
           owner: { kind: "entity" as const, ownerId: objectId, role: "burner_fuel" },
         },
       ],
+      generator: createRuntimeGenerator(buildableId, objectId, fuelContainerId),
       machine: undefined,
       object: {
         buildableId: definition.buildableId,
@@ -233,6 +229,7 @@ const createPlacedBuildable = (
       inputContainerIds,
       kind: definition.machineKind,
       machineId: objectId,
+      networkId: undefined,
       objectId,
       outputContainerIds,
       powerState: "connected" as const,
@@ -240,6 +237,7 @@ const createPlacedBuildable = (
       recipeId: machineDefinition.defaultRecipeId,
       status: "idle" as const,
     },
+    generator: undefined,
     object: {
       buildableId: definition.buildableId,
       containerIds: containers.map((container) => container.containerId),
@@ -257,17 +255,22 @@ const tileKey = (coordinate: GridCoordinate) => `${coordinate.x}:${coordinate.y}
 
 const normalizeRuntimeSnapshot = (snapshot: WorldRuntimeSnapshot): WorldRuntimeSnapshot => ({
   ...snapshot,
+  generators: snapshot.generators ?? [],
   objects: snapshot.objects ?? [],
-  runtimeVersion: 2,
-  tiles: snapshot.tiles ?? buildMapTiles(),
+  powerNetworks: snapshot.powerNetworks ?? [],
+  runtimeVersion: 3,
+  tiles: snapshot.tiles ?? defaultRuntimeMapContract.tiles,
   transportLanes: snapshot.transportLanes.map((lane) => ({
     ...lane,
     pathTiles: lane.pathTiles ?? [],
   })),
 });
 
-const fixedRuntimeObjects = (starterBoxEntityId: string | undefined): Array<RuntimePlacedObject> => {
-  const nodes = fixedResourceNodes.map<RuntimePlacedObject>((node) => ({
+const fixedRuntimeObjects = (
+  mapContract: typeof defaultRuntimeMapContract,
+  starterBoxEntityId: string | undefined,
+): Array<RuntimePlacedObject> => {
+  const nodes = mapContract.resourceNodes.map<RuntimePlacedObject>((node) => ({
     buildableId: node.buildableId,
     containerIds: [],
     fixed: true,
@@ -285,7 +288,7 @@ const fixedRuntimeObjects = (starterBoxEntityId: string | undefined): Array<Runt
     fixed: true,
     machineId: undefined,
     objectId: modularStorageObjectId,
-    origin: fixedStorageOrigin,
+    origin: mapContract.modularStorageAnchor,
     removable: false,
     rotation: undefined,
   };
@@ -303,7 +306,7 @@ const fixedRuntimeObjects = (starterBoxEntityId: string | undefined): Array<Runt
       fixed: false,
       machineId: undefined,
       objectId: starterBoxEntityId,
-      origin: starterBoxAnchor,
+      origin: mapContract.starterBoxAnchor,
       removable: true,
       rotation: "south",
     },
@@ -312,12 +315,54 @@ const fixedRuntimeObjects = (starterBoxEntityId: string | undefined): Array<Runt
 
 type QueuedWorldCommand = {
   readonly actor: ActorContext;
+  readonly cacheKey: string;
   readonly command: WorldCommand;
   readonly result: Deferred.Deferred<WorldCommandReceipt>;
 };
 
+type RememberedCommand =
+  | {
+      readonly _tag: "pending";
+      readonly deferred: Deferred.Deferred<WorldCommandReceipt>;
+      readonly payloadKey: string;
+    }
+  | {
+      readonly _tag: "resolved";
+      readonly payloadKey: string;
+      readonly receipt: WorldCommandReceipt;
+    };
+
+type CommandSubmissionResolution =
+  | {
+      readonly _tag: "conflict";
+    }
+  | {
+      readonly _tag: "enqueue";
+      readonly deferred: Deferred.Deferred<WorldCommandReceipt>;
+    }
+  | {
+      readonly _tag: "pending";
+      readonly deferred: Deferred.Deferred<WorldCommandReceipt>;
+    }
+  | {
+      readonly _tag: "resolved";
+      readonly receipt: WorldCommandReceipt;
+    };
+
+type QueuedCommandResult =
+  | {
+      readonly _tag: "queued";
+      readonly commandId: string;
+      readonly receipt: Deferred.Deferred<WorldCommandReceipt>;
+    }
+  | {
+      readonly _tag: "resolved";
+      readonly receipt: WorldCommandReceipt;
+    };
+
 type LoadedWorldRuntime = {
   readonly commandQueue: Queue.Queue<QueuedWorldCommand>;
+  readonly commandReceipts: SynchronizedRef.SynchronizedRef<ReadonlyMap<string, RememberedCommand>>;
   readonly deltas: PubSub.PubSub<WorldRuntimeDelta>;
   readonly liveSnapshot: SubscriptionRef.SubscriptionRef<WorldRuntimeSnapshot>;
   readonly state: Ref.Ref<WorldRuntimeSnapshot>;
@@ -358,6 +403,7 @@ type CommandApplication = {
 type TickResult = {
   readonly delta: WorldRuntimeDelta | undefined;
   readonly receipts: ReadonlyArray<{
+    readonly cacheKey: string;
     readonly deferred: Deferred.Deferred<WorldCommandReceipt>;
     readonly receipt: WorldCommandReceipt;
   }>;
@@ -367,6 +413,7 @@ type TickResult = {
 type TickPhaseState = {
   readonly changes: Array<WorldRuntimeChange>;
   readonly pendingReceipts: Array<{
+    readonly cacheKey: string;
     readonly deferred: Deferred.Deferred<WorldCommandReceipt>;
     readonly pendingReceipt: PendingCommandReceipt;
   }>;
@@ -374,6 +421,10 @@ type TickPhaseState = {
 };
 
 const modularStorageContainerId = "system:modular-storage";
+
+const commandCacheKey = (actor: ActorContext, commandId: string) => `${actor.publicKey}:${commandId}`;
+
+const commandPayloadKey = (command: WorldCommand) => JSON.stringify(command);
 
 const assetInventoryContainerId = (assetId: string) => `asset:${assetId}:inventory`;
 
@@ -438,6 +489,7 @@ const toRuntimeQuota = (snapshot: WorldSnapshot) =>
 const buildInitialRuntimeSnapshot = (world: ReadyWorld): Effect.Effect<WorldRuntimeSnapshot> =>
   Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
+    const mapContract = getRuntimeMapContract(world.spec.mapId);
     const inventoryBindings = makeInventoryBindings(world.snapshot);
     const inventoryContainers = world.snapshot.roster.map<SlotContainer>((slot) =>
       toSlotContainer({
@@ -499,20 +551,22 @@ const buildInitialRuntimeSnapshot = (world: ReadyWorld): Effect.Effect<WorldRunt
       tutorial: world.snapshot.tutorial,
     };
 
-    const objects = fixedRuntimeObjects(starterBox?.entityId);
+    const objects = fixedRuntimeObjects(mapContract, starterBox?.entityId);
 
     return {
       containers,
       deltaSequence: 0,
+      generators: [],
       inventories: inventoryBindings,
       lastTickAt: new Date(now).toISOString(),
       machines: [],
       mode: world.spec.mode,
       observers,
       objects,
-      runtimeVersion: 2,
+      powerNetworks: [],
+      runtimeVersion: 3,
       tick: 0,
-      tiles: buildMapTiles(),
+      tiles: mapContract.tiles,
       transportLanes: [],
       worldId: world.worldId,
     };
@@ -526,6 +580,9 @@ const findObject = (snapshot: WorldRuntimeSnapshot, objectId: string) =>
 
 const findMachine = (snapshot: WorldRuntimeSnapshot, machineId: string) =>
   snapshot.machines.find((machine) => machine.machineId === machineId);
+
+const findGenerator = (snapshot: WorldRuntimeSnapshot, generatorId: string) =>
+  snapshot.generators.find((generator) => generator.generatorId === generatorId);
 
 const findTile = (snapshot: WorldRuntimeSnapshot, coordinate: GridCoordinate) =>
   (snapshot.tiles ?? []).find((tile) => tile.coordinate.x === coordinate.x && tile.coordinate.y === coordinate.y);
@@ -575,6 +632,29 @@ const addMachine = (snapshot: WorldRuntimeSnapshot, machine: WorldRuntimeSnapsho
 const removeMachine = (snapshot: WorldRuntimeSnapshot, machineId: string): WorldRuntimeSnapshot => ({
   ...snapshot,
   machines: snapshot.machines.filter((machine) => machine.machineId !== machineId),
+});
+
+const replaceGenerator = (snapshot: WorldRuntimeSnapshot, generator: RuntimeGenerator): WorldRuntimeSnapshot => ({
+  ...snapshot,
+  generators: snapshot.generators.map((current) => (current.generatorId === generator.generatorId ? generator : current)),
+});
+
+const addGenerator = (snapshot: WorldRuntimeSnapshot, generator: RuntimeGenerator): WorldRuntimeSnapshot => ({
+  ...snapshot,
+  generators: [...snapshot.generators, generator],
+});
+
+const removeGenerator = (snapshot: WorldRuntimeSnapshot, generatorId: string): WorldRuntimeSnapshot => ({
+  ...snapshot,
+  generators: snapshot.generators.filter((generator) => generator.generatorId !== generatorId),
+});
+
+const replacePowerNetworks = (
+  snapshot: WorldRuntimeSnapshot,
+  powerNetworks: ReadonlyArray<RuntimePowerNetwork>,
+): WorldRuntimeSnapshot => ({
+  ...snapshot,
+  powerNetworks: [...powerNetworks],
 });
 
 const replaceTransportLane = (
@@ -682,6 +762,27 @@ const placeIntoInventoryOrDestroy = (
     changes: [{ _tag: "ContainerChanged", container: placed.container }],
     snapshot: nextSnapshot,
   };
+};
+
+const isActorOwnedInventory = (container: RuntimeContainer, actor: ActorContext) =>
+  container.owner.kind === "asset" && container.owner.role === "inventory" && container.owner.actorPublicKey === actor.publicKey;
+
+const canManuallyTakeFromContainer = (container: RuntimeContainer, actor: ActorContext) => {
+  if (isActorOwnedInventory(container, actor)) {
+    return false;
+  }
+
+  switch (container.owner.role) {
+    case "burner_fuel":
+    case "machine_input":
+    case "quota_storage":
+      return false;
+    case "machine_output":
+    case "starter_box":
+      return true;
+    default:
+      return isSlotContainer(container);
+  }
 };
 
 const getPortDefinitions = (object: RuntimePlacedObject): ReadonlyArray<PortDefinition> => {
@@ -1143,6 +1244,21 @@ const applyTakeFromContainer = (
     return rejectCommand(snapshot, command.commandId, "no_actor_inventory", "Actor has no bound runtime inventory");
   }
 
+  const sourceContainer = findContainer(snapshot, command.fromContainerId);
+
+  if (sourceContainer === undefined) {
+    return rejectCommand(snapshot, command.commandId, "container_missing", "Source container is missing");
+  }
+
+  if (!canManuallyTakeFromContainer(sourceContainer, actor)) {
+    return rejectCommand(
+      snapshot,
+      command.commandId,
+      "invalid_target",
+      `${sourceContainer.containerId} does not allow manual withdrawal`,
+    );
+  }
+
   return applyTransfer(snapshot, {
     _tag: "TransferItems",
     commandId: command.commandId,
@@ -1409,14 +1525,18 @@ const applyPlaceBuilding = (
     return rejectCommand(snapshot, command.commandId, "invalid_location", "Target tile is already occupied");
   }
 
-  if (command.buildableId === "miner_v1") {
-    const node = fixedResourceNodes.find((candidate) => candidate.origin.x === command.origin.x && candidate.origin.y === command.origin.y);
+  const resourceNode = (snapshot.objects ?? []).find((object) =>
+    object.resourceNodeId !== undefined && object.origin.x === command.origin.x && object.origin.y === command.origin.y
+  );
 
-    if (node === undefined) {
+  if (command.buildableId === "miner_v1") {
+    if (resourceNode?.resourceNodeId === undefined) {
       return rejectCommand(snapshot, command.commandId, "invalid_location", "Miner must be placed on a resource node");
     }
 
-    const occupied = (snapshot.objects ?? []).some((object) => object.buildableId === "miner_v1" && object.resourceNodeId === node.nodeId);
+    const occupied = (snapshot.objects ?? []).some((object) =>
+      object.buildableId === "miner_v1" && object.resourceNodeId === resourceNode.resourceNodeId
+    );
 
     if (occupied) {
       return rejectCommand(snapshot, command.commandId, "invalid_location", "Resource node already has a miner");
@@ -1439,7 +1559,7 @@ const applyPlaceBuilding = (
   const object = command.buildableId === "miner_v1"
     ? {
         ...created.object,
-        resourceNodeId: fixedResourceNodes.find((node) => node.origin.x === command.origin.x && node.origin.y === command.origin.y)?.nodeId,
+        resourceNodeId: resourceNode?.resourceNodeId,
       }
     : created.object;
 
@@ -1454,6 +1574,11 @@ const applyPlaceBuilding = (
   if (created.machine !== undefined) {
     nextSnapshot = addMachine(nextSnapshot, created.machine);
     changes.push({ _tag: "MachineChanged", machine: created.machine });
+  }
+
+  if (created.generator !== undefined) {
+    nextSnapshot = addGenerator(nextSnapshot, created.generator);
+    changes.push({ _tag: "GeneratorChanged", generator: created.generator });
   }
 
   nextSnapshot = addObject(nextSnapshot, object);
@@ -1610,6 +1735,13 @@ const applyRemoveBuilding = (
     changes.push({ _tag: "MachineRemoved", machineId: object.machineId });
   }
 
+  const generator = findGenerator(nextSnapshot, object.objectId);
+
+  if (generator !== undefined) {
+    nextSnapshot = removeGenerator(nextSnapshot, generator.generatorId);
+    changes.push({ _tag: "GeneratorRemoved", generatorId: generator.generatorId });
+  }
+
   nextSnapshot = removeObject(nextSnapshot, object.objectId);
   changes.push({ _tag: "RuntimeObjectRemoved", objectId: object.objectId });
 
@@ -1716,6 +1848,141 @@ const applySetMachineRecipe = (
   return acceptCommand(nextSnapshot, command.commandId, changes);
 };
 
+const activeRuntimePlayerCount = (snapshot: WorldRuntimeSnapshot) =>
+  Math.max(1, snapshot.inventories.filter((inventory) => inventory.actorPublicKey !== undefined).length);
+
+const skipVoteThreshold = (playerCount: number) => Math.ceil(playerCount / 2);
+
+const applyInsertFuel = (
+  snapshot: WorldRuntimeSnapshot,
+  command: Extract<WorldCommand, { readonly _tag: "InsertFuel" }>,
+): CommandApplication => {
+  const directObject = findObject(snapshot, command.machineId);
+  const machineObject = findMachine(snapshot, command.machineId)?.objectId;
+  const targetObject = directObject ?? (machineObject === undefined ? undefined : findObject(snapshot, machineObject));
+
+  if (targetObject === undefined) {
+    return rejectCommand(snapshot, command.commandId, "object_missing", "Fuel target is missing");
+  }
+
+  const fuelContainerId = targetObject.containerIds.find((containerId) => {
+    const container = findContainer(snapshot, containerId);
+    return container?.owner.role === "burner_fuel";
+  });
+
+  if (fuelContainerId === undefined) {
+    return rejectCommand(snapshot, command.commandId, "invalid_target", `${targetObject.objectId} has no fuel buffer`);
+  }
+
+  return applyTransfer(snapshot, {
+    _tag: "TransferItems",
+    commandId: command.commandId,
+    fromContainerId: command.fromContainerId,
+    fromSlotIndex: command.fromSlotIndex,
+    itemId: command.fuelItemId,
+    quantity: command.quantity,
+    toContainerId: fuelContainerId,
+    toSlotIndex: undefined,
+  });
+};
+
+const applyAdvanceBossChat = (
+  snapshot: WorldRuntimeSnapshot,
+  command: Extract<WorldCommand, { readonly _tag: "AdvanceBossChat" }>,
+): CommandApplication => {
+  if (command.phraseIndex !== snapshot.observers.bossChat.currentPhraseIndex) {
+    return rejectCommand(
+      snapshot,
+      command.commandId,
+      "invalid_command",
+      `Boss chat is already at phrase ${snapshot.observers.bossChat.currentPhraseIndex}`,
+    );
+  }
+
+  const observers: RuntimeObservers = {
+    ...snapshot.observers,
+    bossChat: {
+      ...snapshot.observers.bossChat,
+      currentPhraseIndex: snapshot.observers.bossChat.currentPhraseIndex + 1,
+      skipVotes: [],
+    },
+  };
+
+  return acceptCommand(
+    {
+      ...snapshot,
+      observers,
+    },
+    command.commandId,
+    [{ _tag: "ObserversChanged", observers }],
+  );
+};
+
+const applyVoteSkipBossChat = (
+  snapshot: WorldRuntimeSnapshot,
+  actor: ActorContext,
+  command: Extract<WorldCommand, { readonly _tag: "VoteSkipBossChat" }>,
+): CommandApplication => {
+  const currentVotes = snapshot.observers.bossChat.skipVotes;
+
+  if (currentVotes.includes(actor.publicKey)) {
+    return acceptCommand(snapshot, command.commandId, []);
+  }
+
+  const nextVotes = [...currentVotes, actor.publicKey];
+  const shouldAdvance = nextVotes.length >= skipVoteThreshold(activeRuntimePlayerCount(snapshot));
+  const observers: RuntimeObservers = {
+    ...snapshot.observers,
+    bossChat: {
+      ...snapshot.observers.bossChat,
+      currentPhraseIndex: shouldAdvance
+        ? snapshot.observers.bossChat.currentPhraseIndex + 1
+        : snapshot.observers.bossChat.currentPhraseIndex,
+      skipVotes: shouldAdvance ? [] : nextVotes,
+    },
+  };
+
+  return acceptCommand(
+    {
+      ...snapshot,
+      observers,
+    },
+    command.commandId,
+    [{ _tag: "ObserversChanged", observers }],
+  );
+};
+
+const applyRestartPowerNetwork = (
+  snapshot: WorldRuntimeSnapshot,
+  command: RestartPowerNetworkCommand,
+): CommandApplication => {
+  const object = findObject(snapshot, command.objectId);
+
+  if (object === undefined) {
+    return rejectCommand(snapshot, command.commandId, "object_missing", "Power restart target is missing");
+  }
+
+  const network = snapshot.powerNetworks.find((candidate) => candidate.memberObjectIds.includes(object.objectId));
+
+  if (network === undefined) {
+    return rejectCommand(snapshot, command.commandId, "network_missing", `${object.objectId} is not on a power network`);
+  }
+
+  const nextNetwork: RuntimePowerNetwork = {
+    ...network,
+    restartRequested: true,
+  };
+  const powerNetworks = snapshot.powerNetworks.map((candidate) =>
+    candidate.networkId === nextNetwork.networkId ? nextNetwork : candidate
+  );
+
+  return acceptCommand(
+    replacePowerNetworks(snapshot, powerNetworks),
+    command.commandId,
+    [{ _tag: "PowerNetworkChanged", network: nextNetwork }],
+  );
+};
+
 const applyCommand = (
   snapshot: WorldRuntimeSnapshot,
   actor: ActorContext,
@@ -1734,18 +2001,16 @@ const applyCommand = (
       return applySetMachineRecipe(snapshot, actor, command);
     case "TransferItems":
       return applyTransfer(snapshot, command);
+    case "InsertFuel":
+      return applyInsertFuel(snapshot, command);
     case "TakeFromContainer":
       return applyTakeFromContainer(snapshot, actor, command);
     case "AdvanceBossChat":
-    case "DeliverQuota":
-    case "InsertFuel":
+      return applyAdvanceBossChat(snapshot, command);
+    case "RestartPowerNetwork":
+      return applyRestartPowerNetwork(snapshot, command);
     case "VoteSkipBossChat":
-      return rejectCommand(
-        snapshot,
-        command.commandId,
-        "unsupported_command",
-        `${command._tag} is not implemented yet`,
-      );
+      return applyVoteSkipBossChat(snapshot, actor, command);
   }
 };
 
@@ -1758,10 +2023,113 @@ const machineChanged = (
   left: WorldRuntimeSnapshot["machines"][number],
   right: WorldRuntimeSnapshot["machines"][number],
 ) =>
+  left.networkId !== right.networkId ||
   left.status !== right.status ||
   left.powerState !== right.powerState ||
   left.progress !== right.progress ||
   left.recipeId !== right.recipeId;
+
+const generatorChanged = (left: RuntimeGenerator, right: RuntimeGenerator) =>
+  left.currentOutputMw !== right.currentOutputMw ||
+  left.fuelBurnProgress !== right.fuelBurnProgress ||
+  left.networkId !== right.networkId ||
+  left.status !== right.status;
+
+const powerNetworkChanged = (left: RuntimePowerNetwork, right: RuntimePowerNetwork) =>
+  JSON.stringify(left) !== JSON.stringify(right);
+
+const machinePowerDrawMw = (machine: WorldRuntimeSnapshot["machines"][number]) =>
+  findMachineDefinition(machine.kind)?.powerDrawMw ?? 0;
+
+const tileCoveredByRadius = (origin: GridCoordinate, coordinate: GridCoordinate, radius: number) =>
+  Math.abs(origin.x - coordinate.x) + Math.abs(origin.y - coordinate.y) <= radius;
+
+const coverageTilesForGenerator = (snapshot: WorldRuntimeSnapshot, generator: RuntimeGenerator) => {
+  const object = findObject(snapshot, generator.objectId);
+
+  if (object === undefined) {
+    return [];
+  }
+
+  return (snapshot.tiles ?? []).flatMap((tile) =>
+    tileCoveredByRadius(object.origin, tile.coordinate, generator.powerRadius) ? [tile.coordinate] : []
+  );
+};
+
+const containerCanAccept = (
+  snapshot: WorldRuntimeSnapshot,
+  container: RuntimeContainer,
+  stack: RuntimeItemStack,
+) => {
+  if (isSlotContainer(container)) {
+    return container.slots.some((slot) => slot.stack === undefined || slot.stack.itemId === stack.itemId);
+  }
+
+  return putIntoTypedContainer(snapshot, container, stack)._tag === "placed";
+};
+
+const machineCouldRunThisTick = (snapshot: WorldRuntimeSnapshot, machine: WorldRuntimeSnapshot["machines"][number]) => {
+  const recipe = machineRecipeFor(machine);
+
+  if (recipe === undefined) {
+    return false;
+  }
+
+  const outputContainerId = machine.outputContainerIds[0];
+  const outputContainer = outputContainerId === undefined ? undefined : findContainer(snapshot, outputContainerId);
+
+  if (outputContainer === undefined || !containerCanAccept(snapshot, outputContainer, recipe.output)) {
+    return false;
+  }
+
+  if (machine.progress > 0) {
+    return true;
+  }
+
+  if (recipe.input === undefined) {
+    return true;
+  }
+
+  const recipeInput = recipe.input;
+
+  const inputContainerId = machine.inputContainerIds[0];
+  const inputContainer = inputContainerId === undefined ? undefined : findContainer(snapshot, inputContainerId);
+
+  if (inputContainer === undefined) {
+    return false;
+  }
+
+  const availableQuantity = isSlotContainer(inputContainer)
+    ? inputContainer.slots.reduce(
+        (total, slot) => total + (slot.stack?.itemId === recipeInput.itemId && slot.stack !== undefined ? slot.stack.quantity : 0),
+        0,
+      )
+    : inputContainer.entries.reduce(
+        (total, entry) => total + (entry.itemId === recipeInput.itemId ? entry.quantity : 0),
+        0,
+      );
+
+  return availableQuantity >= recipeInput.quantity;
+};
+
+const generatorFuelEntry = (snapshot: WorldRuntimeSnapshot, generator: RuntimeGenerator) => {
+  const container = findContainer(snapshot, generator.fuelContainerId);
+
+  if (container === undefined || !isTypedContainer(container)) {
+    return undefined;
+  }
+
+  const entry = container.entries.find((candidate) => candidate.quantity > 0 && container.acceptedItemIds.includes(candidate.itemId));
+
+  if (entry === undefined) {
+    return undefined;
+  }
+
+  return {
+    container,
+    entry,
+  };
+};
 
 export const progressMachineWork = (snapshot: WorldRuntimeSnapshot): {
   readonly changes: ReadonlyArray<WorldRuntimeChange>;
@@ -2051,6 +2419,7 @@ const applyCommandPhase = (state: TickPhaseState, commands: ReadonlyArray<Queued
       pendingReceipts: [
         ...nextState.pendingReceipts,
         {
+          cacheKey: queued.cacheKey,
           deferred: queued.result,
           pendingReceipt: applied.pendingReceipt,
         },
@@ -2062,7 +2431,291 @@ const applyCommandPhase = (state: TickPhaseState, commands: ReadonlyArray<Queued
   return nextState;
 };
 
-const recomputePowerPhase = (state: TickPhaseState): TickPhaseState => state;
+const recomputePowerPhase = (state: TickPhaseState): TickPhaseState => {
+  const previousSnapshot = state.snapshot;
+  const previousNetworks = new Map(previousSnapshot.powerNetworks.map((network) => [network.networkId, network]));
+  const updatedGenerators = new Map<string, RuntimeGenerator>(
+    previousSnapshot.generators.map((generator) => [
+      generator.generatorId,
+      {
+        ...generator,
+        currentOutputMw: 0,
+        networkId: undefined,
+        status: generatorFuelEntry(previousSnapshot, generator) === undefined ? ("out_of_fuel" as const) : ("idle" as const),
+      },
+    ]),
+  );
+  const updatedMachines = new Map<string, WorldRuntimeSnapshot["machines"][number]>(
+    previousSnapshot.machines.map((machine) => [
+      machine.machineId,
+      {
+        ...machine,
+        networkId: undefined,
+        powerState: "disconnected" as const,
+        status: "unpowered" as const,
+      },
+    ]),
+  );
+  const poweredGenerators = previousSnapshot.generators.flatMap((generator) => {
+    const fuel = generatorFuelEntry(previousSnapshot, generator);
+
+    if (fuel === undefined) {
+      return [];
+    }
+
+    const coverage = coverageTilesForGenerator(previousSnapshot, generator);
+
+    return coverage.length === 0
+      ? []
+      : [{ coverage, coverageKeys: new Set(coverage.map(tileKey)), generator }] as const;
+  });
+  const visited = new Set<string>();
+  const components: Array<ReadonlyArray<(typeof poweredGenerators)[number]>> = [];
+
+  for (const candidate of poweredGenerators) {
+    if (visited.has(candidate.generator.generatorId)) {
+      continue;
+    }
+
+    const component: Array<(typeof poweredGenerators)[number]> = [];
+    const queue = [candidate];
+    visited.add(candidate.generator.generatorId);
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+
+      if (current === undefined) {
+        continue;
+      }
+
+      component.push(current);
+
+      for (const neighbor of poweredGenerators) {
+        if (visited.has(neighbor.generator.generatorId)) {
+          continue;
+        }
+
+        const overlaps = [...current.coverageKeys].some((coordinateKey) => neighbor.coverageKeys.has(coordinateKey));
+
+        if (!overlaps) {
+          continue;
+        }
+
+        visited.add(neighbor.generator.generatorId);
+        queue.push(neighbor);
+      }
+    }
+
+    components.push(component);
+  }
+
+  const nextNetworks: Array<RuntimePowerNetwork> = [];
+
+  for (const component of components) {
+    const energizedTilesMap = new Map<string, GridCoordinate>();
+
+    for (const entry of component) {
+      for (const coordinate of entry.coverage) {
+        energizedTilesMap.set(tileKey(coordinate), coordinate);
+      }
+    }
+
+    const energizedTiles = [...energizedTilesMap.values()];
+    const coverageKeys = new Set(energizedTiles.map(tileKey));
+    const generators = component.map((entry) => entry.generator);
+    const networkId = `network:${generators.map((generator) => generator.generatorId).sort().join("|")}`;
+    const memberObjects = (previousSnapshot.objects ?? []).flatMap((object) =>
+      coverageKeys.has(tileKey(object.origin)) ? [object] : []
+    );
+    const machines = previousSnapshot.machines.flatMap((machine) => {
+      const objectId = machine.objectId;
+
+      if (objectId === undefined) {
+        return [];
+      }
+
+      return memberObjects.some((object) => object.objectId === objectId) ? [machine] : [];
+    });
+    const maxPotentialCapacity = generators.reduce((total, generator) => total + generator.maxCapacityMw, 0);
+    const maxPotentialConsumption = machines.reduce((total, machine) => total + machinePowerDrawMw(machine), 0);
+    const currentConsumption = machines.reduce(
+      (total, machine) => total + (machineCouldRunThisTick(previousSnapshot, machine) ? machinePowerDrawMw(machine) : 0),
+      0,
+    );
+    const previousNetwork = previousNetworks.get(networkId);
+    const shouldTryRestart = previousNetwork === undefined || previousNetwork.status !== "tripped" || previousNetwork.restartRequested;
+    const status: RuntimePowerNetwork["status"] =
+      shouldTryRestart && currentConsumption <= maxPotentialCapacity ? "energized" : "tripped";
+    const currentProduction = status === "energized" ? currentConsumption : 0;
+
+    const network: RuntimePowerNetwork = {
+      currentConsumption,
+      currentProduction,
+      energizedTiles,
+      maxPotentialCapacity,
+      maxPotentialConsumption,
+      memberObjectIds: memberObjects.map((object) => object.objectId),
+      networkId,
+      restartRequested: false,
+      status,
+    };
+
+    nextNetworks.push(network);
+
+    for (const machine of machines) {
+      const nextMachine = updatedMachines.get(machine.machineId);
+
+      if (nextMachine === undefined) {
+        continue;
+      }
+
+      updatedMachines.set(machine.machineId, {
+        ...nextMachine,
+        networkId,
+        powerState: status === "energized" ? "connected" : "unpowered",
+        status: status === "energized"
+          ? (nextMachine.status === "unpowered" ? ("idle" as const) : nextMachine.status)
+          : ("unpowered" as const),
+      });
+    }
+
+    for (const generator of generators) {
+      const nextGenerator = updatedGenerators.get(generator.generatorId);
+
+      if (nextGenerator === undefined) {
+        continue;
+      }
+
+      const outputShare = status === "energized" && maxPotentialCapacity > 0
+        ? currentProduction * (generator.maxCapacityMw / maxPotentialCapacity)
+        : 0;
+      updatedGenerators.set(generator.generatorId, {
+        ...nextGenerator,
+        currentOutputMw: outputShare,
+        networkId,
+        status: status === "tripped"
+          ? "tripped"
+          : outputShare > 0
+            ? "running"
+            : "idle",
+      });
+    }
+  }
+
+  let nextSnapshot: WorldRuntimeSnapshot = {
+    ...previousSnapshot,
+    generators: previousSnapshot.generators.map((generator) => updatedGenerators.get(generator.generatorId) ?? generator),
+    machines: previousSnapshot.machines.map((machine) => updatedMachines.get(machine.machineId) ?? machine),
+    powerNetworks: nextNetworks,
+  };
+  const changes: Array<WorldRuntimeChange> = [...state.changes];
+
+  for (const generator of nextSnapshot.generators) {
+    if (generator.currentOutputMw <= 0) {
+      continue;
+    }
+
+    const definition = findGeneratorDefinition(generator.kind);
+
+    if (definition === undefined) {
+      continue;
+    }
+
+    const container = findContainer(nextSnapshot, generator.fuelContainerId);
+
+    if (container === undefined || !isTypedContainer(container)) {
+      continue;
+    }
+
+    const nextFuelBurnProgress = generator.fuelBurnProgress +
+      generator.currentOutputMw / generator.maxCapacityMw / definition.fuelTicksPerItemAtFullLoad;
+    const consumedFuel = Math.floor(nextFuelBurnProgress);
+    const remainingFuelBurnProgress = nextFuelBurnProgress - consumedFuel;
+    let nextGenerator = {
+      ...generator,
+      fuelBurnProgress: remainingFuelBurnProgress,
+    };
+
+    if (consumedFuel > 0) {
+      const fuelEntry = container.entries.find((entry) => entry.quantity > 0 && container.acceptedItemIds.includes(entry.itemId));
+
+      if (fuelEntry !== undefined) {
+        const nextQuantity = Math.max(0, fuelEntry.quantity - consumedFuel);
+        const nextContainer: TypedContainer = {
+          ...container,
+          entries:
+            nextQuantity === 0
+              ? container.entries.filter((entry) => entry.itemId !== fuelEntry.itemId)
+              : container.entries.map((entry) =>
+                  entry.itemId === fuelEntry.itemId
+                    ? {
+                        itemId: entry.itemId,
+                        quantity: nextQuantity,
+                      }
+                    : entry
+                ),
+        };
+        nextSnapshot = replaceContainer(nextSnapshot, nextContainer);
+        changes.push({ _tag: "ContainerChanged", container: nextContainer });
+      }
+    }
+
+    const previousGenerator = previousSnapshot.generators.find((candidate) => candidate.generatorId === generator.generatorId);
+
+    if (previousGenerator !== undefined && generatorChanged(previousGenerator, nextGenerator)) {
+      nextSnapshot = replaceGenerator(nextSnapshot, nextGenerator);
+    }
+  }
+
+  for (const machine of nextSnapshot.machines) {
+    const previousMachine = previousSnapshot.machines.find((candidate) => candidate.machineId === machine.machineId);
+
+    if (previousMachine !== undefined && machineChanged(previousMachine, machine)) {
+      changes.push({ _tag: "MachineChanged", machine });
+    }
+  }
+
+  for (const generator of nextSnapshot.generators) {
+    const previousGenerator = previousSnapshot.generators.find((candidate) => candidate.generatorId === generator.generatorId);
+
+    if (previousGenerator !== undefined && generatorChanged(previousGenerator, generator)) {
+      changes.push({ _tag: "GeneratorChanged", generator });
+    }
+  }
+
+  for (const network of nextNetworks) {
+    const previousNetwork = previousNetworks.get(network.networkId);
+
+    if (previousNetwork === undefined || powerNetworkChanged(previousNetwork, network)) {
+      changes.push({ _tag: "PowerNetworkChanged", network });
+    }
+  }
+
+  for (const previousNetwork of previousSnapshot.powerNetworks) {
+    if (!nextNetworks.some((network) => network.networkId === previousNetwork.networkId)) {
+      changes.push({ _tag: "PowerNetworkRemoved", networkId: previousNetwork.networkId });
+    }
+  }
+
+  return {
+    ...state,
+    changes,
+    snapshot: nextSnapshot,
+  };
+};
+
+export const recomputePowerState = (snapshot: WorldRuntimeSnapshot) => {
+  const result = recomputePowerPhase({
+    changes: [],
+    pendingReceipts: [],
+    snapshot,
+  });
+
+  return {
+    changes: result.changes,
+    snapshot: result.snapshot,
+  };
+};
 
 const progressMachinesPhase = (state: TickPhaseState): TickPhaseState => {
   const result = progressMachineWork(state.snapshot);
@@ -2128,7 +2781,8 @@ const applyTick = (
 
   return {
     delta,
-    receipts: finalPhaseState.pendingReceipts.map(({ deferred, pendingReceipt }) => ({
+    receipts: finalPhaseState.pendingReceipts.map(({ cacheKey, deferred, pendingReceipt }) => ({
+      cacheKey,
       deferred,
       receipt: materializeReceipt(worldId, finalSnapshot.tick, deltaSequence, pendingReceipt),
     })),
@@ -2159,7 +2813,26 @@ const runWorldLoop = Effect.fnUntraced(function*(runtime: LoadedWorldRuntime, ch
       );
     }
 
-    yield* Effect.forEach(result.receipts, ({ deferred, receipt }) => Deferred.succeed(deferred, receipt), {
+    yield* Effect.forEach(result.receipts, ({ cacheKey, deferred, receipt }) =>
+      Effect.flatMap(
+        SynchronizedRef.update(runtime.commandReceipts, (current) => {
+          const existing = current.get(cacheKey);
+
+          if (existing === undefined) {
+            return current;
+          }
+
+          const next = new Map(current);
+          next.set(cacheKey, {
+            _tag: "resolved",
+            payloadKey: existing.payloadKey,
+            receipt,
+          });
+          return next;
+        }),
+        () => Deferred.succeed(deferred, receipt),
+      ),
+    {
       concurrency: 1,
       discard: true,
     });
@@ -2188,10 +2861,19 @@ export class WorldRuntimeService extends ServiceMap.Service<
         actor: ActorContext,
         worldId: string,
       ) => Effect.Effect<Stream.Stream<WorldRuntimeMessage>, WorldAccessDeniedError | WorldNotFoundError | WorldRuntimeUnavailableError, never>;
+      readonly queueWorldCommand: (
+        actor: ActorContext,
+        worldId: string,
+        command: WorldCommand,
+      ) => Effect.Effect<
+        QueuedCommandResult,
+        WorldAccessDeniedError | WorldCommandQueueFullError | WorldNotFoundError | WorldRuntimeUnavailableError,
+        never
+      >;
       readonly submitWorldCommand: (
         actor: ActorContext,
         worldId: string,
-      command: WorldCommand,
+       command: WorldCommand,
     ) => Effect.Effect<
       WorldCommandReceipt,
       WorldAccessDeniedError | WorldCommandQueueFullError | WorldNotFoundError | WorldRuntimeUnavailableError,
@@ -2279,9 +2961,11 @@ export class WorldRuntimeService extends ServiceMap.Service<
               capacity: commandQueueCapacity,
               strategy: "dropping",
             });
+            const commandReceipts = yield* SynchronizedRef.make<ReadonlyMap<string, RememberedCommand>>(new Map());
             const deltas = yield* PubSub.bounded<WorldRuntimeDelta>(64);
             const runtime: LoadedWorldRuntime = {
               commandQueue,
+              commandReceipts,
               deltas,
               liveSnapshot,
               state,
@@ -2342,26 +3026,130 @@ export class WorldRuntimeService extends ServiceMap.Service<
         );
       });
 
-      const submitWorldCommand = Effect.fnUntraced(function*(actor: ActorContext, worldId: string, command: WorldCommand) {
+      const queueWorldCommand = Effect.fnUntraced(function*(actor: ActorContext, worldId: string, command: WorldCommand) {
         const world = yield* resolveReadyWorld(actor, worldId, true);
         const runtime = yield* ensureRuntime(world);
-        const result = yield* Deferred.make<WorldCommandReceipt>();
-        const accepted = yield* Queue.offer(runtime.commandQueue, {
-          actor,
-          command,
-          result,
-        });
+        const cacheKey = commandCacheKey(actor, command.commandId);
+        const payloadKey = commandPayloadKey(command);
+        const resolution: CommandSubmissionResolution = yield* SynchronizedRef.modifyEffect(
+          runtime.commandReceipts,
+          (current): Effect.Effect<readonly [CommandSubmissionResolution, ReadonlyMap<string, RememberedCommand>]> => {
+            const existing = current.get(cacheKey);
 
-        if (!accepted) {
-          return yield* Effect.fail(
-            new WorldCommandQueueFullError({
-              message: "World command queue is full",
-              worldId,
-            }),
-          );
+            if (existing !== undefined) {
+              if (existing.payloadKey !== payloadKey) {
+                const conflict: CommandSubmissionResolution = { _tag: "conflict" };
+                return Effect.succeed([
+                  conflict,
+                  current,
+                ] satisfies readonly [CommandSubmissionResolution, ReadonlyMap<string, RememberedCommand>]);
+              }
+
+              if (existing._tag === "resolved") {
+                const resolved: CommandSubmissionResolution = {
+                  _tag: "resolved",
+                  receipt: existing.receipt,
+                };
+                return Effect.succeed([
+                  resolved,
+                  current,
+                ] satisfies readonly [CommandSubmissionResolution, ReadonlyMap<string, RememberedCommand>]);
+              }
+
+              const pending: CommandSubmissionResolution = {
+                _tag: "pending",
+                deferred: existing.deferred,
+              };
+              return Effect.succeed([
+                pending,
+                current,
+              ] satisfies readonly [CommandSubmissionResolution, ReadonlyMap<string, RememberedCommand>]);
+            }
+
+            return Effect.gen(function* () {
+              const deferred = yield* Deferred.make<WorldCommandReceipt>();
+              const next = new Map(current);
+              next.set(cacheKey, {
+                _tag: "pending",
+                deferred,
+                payloadKey,
+              });
+              const enqueue: CommandSubmissionResolution = {
+                _tag: "enqueue",
+                deferred,
+              };
+              return [
+                enqueue,
+                next,
+              ] satisfies readonly [CommandSubmissionResolution, ReadonlyMap<string, RememberedCommand>];
+            });
+          },
+        );
+
+        switch (resolution._tag) {
+          case "conflict":
+            return {
+              _tag: "resolved",
+              receipt: {
+                _tag: "WorldCommandRejected",
+                commandId: command.commandId,
+                message: `commandId ${command.commandId} was reused with a different payload`,
+                reasonCode: "idempotency_conflict",
+                rejectedTick: 0,
+                status: "rejected",
+                worldId,
+              },
+            } satisfies QueuedCommandResult;
+          case "resolved":
+            return {
+              _tag: "resolved",
+              receipt: resolution.receipt,
+            } satisfies QueuedCommandResult;
+          case "pending":
+            return {
+              _tag: "queued",
+              commandId: command.commandId,
+              receipt: resolution.deferred,
+            } satisfies QueuedCommandResult;
+          case "enqueue": {
+            const accepted = yield* Queue.offer(runtime.commandQueue, {
+              actor,
+              cacheKey,
+              command,
+              result: resolution.deferred,
+            });
+
+            if (!accepted) {
+              yield* SynchronizedRef.update(runtime.commandReceipts, (current) => {
+                const next = new Map(current);
+                next.delete(cacheKey);
+                return next;
+              });
+              return yield* Effect.fail(
+                new WorldCommandQueueFullError({
+                  message: "World command queue is full",
+                  worldId,
+                }),
+              );
+            }
+
+            return {
+              _tag: "queued",
+              commandId: command.commandId,
+              receipt: resolution.deferred,
+            } satisfies QueuedCommandResult;
+          }
+        }
+      });
+
+      const submitWorldCommand = Effect.fnUntraced(function*(actor: ActorContext, worldId: string, command: WorldCommand) {
+        const queued = yield* queueWorldCommand(actor, worldId, command);
+
+        if (queued._tag === "resolved") {
+          return queued.receipt;
         }
 
-        return yield* Deferred.await(result);
+        return yield* Deferred.await(queued.receipt);
       });
 
       return {
@@ -2369,6 +3157,7 @@ export class WorldRuntimeService extends ServiceMap.Service<
         getWorldRuntimeCheckpoint,
         openWorldRuntimeFeed,
         openWorldRuntimeMessageStream,
+        queueWorldCommand,
         submitWorldCommand,
       };
     }),
