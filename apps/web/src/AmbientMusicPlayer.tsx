@@ -1,8 +1,8 @@
-import { Array, Option, pipe } from "effect";
-import { useEffect, useRef } from "react";
+import { Array as EffectArray, Option, pipe } from "effect";
+import { useCallback, useEffect, useRef } from "react";
 import { useAudioSettings } from "./audio-settings";
 
-const AMBIENT_TRACKS = Array.make(
+const AMBIENT_TRACKS = EffectArray.make(
   "/kits/music/refactory-ambient-1.ogg",
   "/kits/music/refactory-ambient-2.ogg",
   "/kits/music/refactory-ambient-3.ogg",
@@ -16,7 +16,7 @@ const AMBIENT_BASE_VOLUME = 0.14;
 function trackAt(index: number): string {
   return pipe(
     AMBIENT_TRACKS,
-    Array.get(index),
+    EffectArray.get(index),
     Option.getOrElse(() => AMBIENT_TRACKS[0]),
   );
 }
@@ -40,16 +40,16 @@ export function AmbientMusicPlayer() {
 
   musicVolumeRef.current = musicVolume;
 
-  const syncVolume = () => {
+  const syncVolume = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) {
       return;
     }
 
     audio.volume = musicVolumeRef.current;
-  };
+  }, []);
 
-  const playTrack = async (index: number) => {
+  const playTrack = useCallback(async (index: number) => {
     const audio = audioRef.current;
     if (!audio) {
       return;
@@ -65,15 +65,15 @@ export function AmbientMusicPlayer() {
     } catch {
       return;
     }
-  };
+  }, []);
 
-  const advancePlaylist = () => {
+  const advancePlaylist = useCallback(() => {
     void playTrack(nextTrackIndex(currentTrackIndexRef.current));
-  };
+  }, [playTrack]);
 
   useEffect(() => {
     syncVolume();
-  }, [musicVolume]);
+  }, [musicVolume, syncVolume]);
 
   useEffect(() => {
     // Reuse one element so browsers keep playback unlocked between tracks.
@@ -110,7 +110,7 @@ export function AmbientMusicPlayer() {
       }
       stopAudio(audio);
     };
-  }, []);
+  }, [advancePlaylist, playTrack]);
 
   return null;
 }

@@ -1,5 +1,6 @@
 import { Api } from "@refactory/contracts/api";
 import { ActorAuth } from "@refactory/contracts/auth";
+
 export {
   CreateWorldRequest,
   CreateWorldResponse,
@@ -7,11 +8,9 @@ export {
   ListWorldsResponse,
   WorldListQuery,
 } from "@refactory/contracts/worlds";
+
 import type {
   CreateWorldRequest,
-  CreateWorldResponse,
-  GetWorldResponse,
-  ListWorldsResponse,
   WorldListQuery,
 } from "@refactory/contracts/worlds";
 import { Effect, Layer, ServiceMap } from "effect";
@@ -22,11 +21,14 @@ import {
   HttpClientRequest,
 } from "effect/unstable/http";
 import { HttpApiClient, HttpApiMiddleware } from "effect/unstable/httpapi";
-import { getOrCreateActorCredentials, makeSignedActorHeaders } from "./actorAuth";
+import {
+  getOrCreateActorCredentials,
+  makeSignedActorHeaders,
+} from "./actorAuth";
 
 const requestUrlBase = "http://refactory.local";
 const defaultFetchBasePath = "/api";
-const defaultSigningBasePath = "";
+const defaultSigningBasePath = defaultFetchBasePath;
 
 type SignedWorldClientOptions = {
   readonly actorDisplayName: string;
@@ -34,13 +36,10 @@ type SignedWorldClientOptions = {
   readonly signingBasePath?: string;
 };
 
-type PublicWorldClientOptions = {
-  readonly fetchBasePath?: string;
-};
-
-export class WorldApiClient extends ServiceMap.Service<WorldApiClient, HttpApiClient.ForApi<typeof Api>>()(
-  "refactory/web/WorldApiClient",
-) {}
+export class WorldApiClient extends ServiceMap.Service<
+  WorldApiClient,
+  HttpApiClient.ForApi<typeof Api>
+>()("refactory/web/WorldApiClient") {}
 
 const trimTrailingSlash = (value: string) =>
   value.length > 1 && value.endsWith("/") ? value.slice(0, -1) : value;
@@ -65,18 +64,29 @@ const stripPathPrefix = (pathname: string, prefix: string) => {
     return "/";
   }
 
-  return pathname.startsWith(`${prefix}/`) ? pathname.slice(prefix.length) : pathname;
+  return pathname.startsWith(`${prefix}/`)
+    ? pathname.slice(prefix.length)
+    : pathname;
 };
 
-const toSigningPathAndQuery = (requestUrl: string, fetchBasePath: string, signingBasePath: string) => {
+const toSigningPathAndQuery = (
+  requestUrl: string,
+  fetchBasePath: string,
+  signingBasePath: string,
+) => {
   const parsed = new URL(requestUrl, requestUrlBase);
-  const strippedPath = stripPathPrefix(parsed.pathname, normalizePathPrefix(fetchBasePath));
+  const strippedPath = stripPathPrefix(
+    parsed.pathname,
+    normalizePathPrefix(fetchBasePath),
+  );
   const signingPrefix = normalizePathPrefix(signingBasePath);
 
   return `${signingPrefix}${strippedPath}${parsed.search}`;
 };
 
-const makePrefixedHttpClient = Effect.fnUntraced(function* (fetchBasePath: string) {
+const makePrefixedHttpClient = Effect.fnUntraced(function* (
+  fetchBasePath: string,
+) {
   const httpClient = yield* HttpClient.HttpClient;
   return httpClient.pipe(
     HttpClient.mapRequest(HttpClientRequest.prependUrl(fetchBasePath)),
@@ -90,30 +100,38 @@ const makeActorAuthClient = (options: SignedWorldClientOptions) => {
   return HttpApiMiddleware.layerClient(
     ActorAuth,
     Effect.fnUntraced(function* ({ next, request }) {
-      const actor = yield* getOrCreateActorCredentials({ displayName: options.actorDisplayName }).pipe(
-        Effect.mapError((cause) =>
-          new HttpClientError.HttpClientError({
-            reason: new HttpClientError.EncodeError({
-              cause,
-              description: "Actor credentials could not be loaded",
-              request,
+      const actor = yield* getOrCreateActorCredentials({
+        displayName: options.actorDisplayName,
+      }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new HttpClientError.HttpClientError({
+              reason: new HttpClientError.EncodeError({
+                cause,
+                description: "Actor credentials could not be loaded",
+                request,
+              }),
             }),
-          }),
         ),
       );
       const headers = yield* makeSignedActorHeaders({
         actor,
         method: request.method,
-        pathAndQuery: toSigningPathAndQuery(request.url, fetchBasePath, signingBasePath),
+        pathAndQuery: toSigningPathAndQuery(
+          request.url,
+          fetchBasePath,
+          signingBasePath,
+        ),
       }).pipe(
-        Effect.mapError((cause) =>
-          new HttpClientError.HttpClientError({
-            reason: new HttpClientError.EncodeError({
-              cause,
-              description: "Actor request could not be signed",
-              request,
+        Effect.mapError(
+          (cause) =>
+            new HttpClientError.HttpClientError({
+              reason: new HttpClientError.EncodeError({
+                cause,
+                description: "Actor request could not be signed",
+                request,
+              }),
             }),
-          }),
         ),
       );
 
@@ -135,13 +153,17 @@ const makeActorAuthClient = (options: SignedWorldClientOptions) => {
  */
 export const makeWorldApiClient = (options: SignedWorldClientOptions) => {
   const fetchBasePath = options.fetchBasePath ?? defaultFetchBasePath;
+  const clientLayer = Layer.mergeAll(
+    FetchHttpClient.layer,
+    makeActorAuthClient(options),
+  );
 
   return HttpApiClient.make(Api, {
-    transformClient: (client) => client.pipe(HttpClient.mapRequest(HttpClientRequest.prependUrl(fetchBasePath))),
-  }).pipe(
-    Effect.provide(makeActorAuthClient(options)),
-    Effect.provide(FetchHttpClient.layer),
-  );
+    transformClient: (client) =>
+      client.pipe(
+        HttpClient.mapRequest(HttpClientRequest.prependUrl(fetchBasePath)),
+      ),
+  }).pipe(Effect.provide(clientLayer));
 };
 
 /**

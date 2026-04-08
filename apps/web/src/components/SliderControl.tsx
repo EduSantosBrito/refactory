@@ -29,7 +29,11 @@ export function SliderControl({
         <div className="slider-track" aria-hidden="true">
           <div className="slider-track-fill" style={{ width: `${percent}%` }} />
         </div>
-        <div className="slider-thumb" aria-hidden="true" style={{ left: `${percent}%` }} />
+        <div
+          className="slider-thumb"
+          aria-hidden="true"
+          style={{ left: `${percent}%` }}
+        />
         <input
           id={id}
           className="slider-input"

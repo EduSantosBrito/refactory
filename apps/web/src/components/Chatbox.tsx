@@ -1,17 +1,17 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-
-type CharacterTag = "BAR-001" | "FLA-002" | "FRO-003" | "RPA-004";
+import type { AssetId } from "@refactory/contracts/worlds";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { DEFAULT_ASSET_ID } from "../characterAssets";
 
 type ChatMessage = {
   id: string;
   type: "message" | "action";
-  tag: CharacterTag;
+  tag: AssetId;
   name: string;
   text: string;
   timestamp: number;
 };
 
-const CHARACTER_COLORS: Record<CharacterTag, string> = {
+const CHARACTER_COLORS: Record<AssetId, string> = {
   "BAR-001": "#ffc000",
   "FLA-002": "#ff0066",
   "FRO-003": "#00e639",
@@ -47,13 +47,13 @@ function setPlayerName(name: string) {
   } catch {}
 }
 
-export function Chatbox({ characterTag = "BAR-001" as CharacterTag }) {
+export function Chatbox({ characterTag = DEFAULT_ASSET_ID as AssetId }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [playerName, setPlayerNameState] = useState(getPlayerName);
   const [isOpen, setIsOpen] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const messageCount = messages.length;
 
   // Focus input on Enter when chat is open and input isn't focused
   useEffect(() => {
@@ -74,9 +74,10 @@ export function Chatbox({ characterTag = "BAR-001" as CharacterTag }) {
   }, [isOpen]);
 
   useEffect(() => {
+    if (messageCount === 0) return;
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages]);
+  }, [messageCount]);
 
   const addMessage = useCallback(
     (partial: Pick<ChatMessage, "type" | "text">) => {
@@ -101,13 +102,14 @@ export function Chatbox({ characterTag = "BAR-001" as CharacterTag }) {
 
     if (trimmed.toLowerCase() === "/wave") {
       window.dispatchEvent(new CustomEvent("player-wave"));
-      const quip = WAVE_QUIPS[Math.floor(Math.random() * WAVE_QUIPS.length)] ?? WAVE_QUIPS[0]!;
+      const quip =
+        WAVE_QUIPS[Math.floor(Math.random() * WAVE_QUIPS.length)] ??
+        "Wave acknowledged.";
       addMessage({ type: "action", text: quip });
     } else if (trimmed.toLowerCase().startsWith("/name ")) {
       const newName = trimmed.slice(6).trim();
       if (newName) {
         setPlayerName(newName);
-        setPlayerNameState(newName);
       }
     } else {
       addMessage({ type: "message", text: trimmed });
@@ -131,7 +133,9 @@ export function Chatbox({ characterTag = "BAR-001" as CharacterTag }) {
         className="chatbox-toggle"
         onClick={() => setIsOpen((o) => !o)}
       >
-        <span className="chatbox-toggle-arrow">{isOpen ? "\u25BE" : "\u25B8"}</span>
+        <span className="chatbox-toggle-arrow">
+          {isOpen ? "\u25BE" : "\u25B8"}
+        </span>
         <span>Comms</span>
       </button>
 
@@ -144,12 +148,19 @@ export function Chatbox({ characterTag = "BAR-001" as CharacterTag }) {
               </p>
             )}
             {messages.map((msg) => {
-              const nameColor = CHARACTER_COLORS[msg.tag] || CHARACTER_COLORS["BAR-001"];
+              const nameColor =
+                CHARACTER_COLORS[msg.tag] || CHARACTER_COLORS[DEFAULT_ASSET_ID];
               return (
-                <div key={msg.id} className={`chatbox-msg chatbox-msg-${msg.type}`}>
+                <div
+                  key={msg.id}
+                  className={`chatbox-msg chatbox-msg-${msg.type}`}
+                >
                   {msg.type === "action" ? (
                     <p>
-                      <span className="chatbox-name" style={{ color: nameColor }}>
+                      <span
+                        className="chatbox-name"
+                        style={{ color: nameColor }}
+                      >
                         {msg.tag} ({msg.name})
                       </span>{" "}
                       <span className="chatbox-wave-verb">waved</span>{" "}
@@ -157,7 +168,10 @@ export function Chatbox({ characterTag = "BAR-001" as CharacterTag }) {
                     </p>
                   ) : (
                     <p>
-                      <span className="chatbox-name" style={{ color: nameColor }}>
+                      <span
+                        className="chatbox-name"
+                        style={{ color: nameColor }}
+                      >
                         {msg.tag} ({msg.name})
                       </span>
                       : {msg.text}

@@ -234,8 +234,8 @@ export function HeatSinkArray() {
       </mesh>
 
       {/* 3× Vertical fins */}
-      {[-0.035, 0, 0.035].map((z, i) => (
-        <mesh key={`fin-${i}`} position={[0, 0.075, z]}>
+      {[-0.035, 0, 0.035].map((z) => (
+        <mesh key={`fin-${z.toFixed(3)}`} position={[0, 0.075, z]}>
           <boxGeometry args={[0.18, 0.12, 0.01]} />
           <meshStandardMaterial color={B.bright} {...M} roughness={0.5} />
         </mesh>

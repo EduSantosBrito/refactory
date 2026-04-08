@@ -1,5 +1,5 @@
-import { B, M } from "./palette";
 import type { ModelProps } from "../colors";
+import { B, M } from "./palette";
 
 /**
  * Personal Box — "The Crate"
@@ -16,7 +16,7 @@ import type { ModelProps } from "../colors";
 /* ── Dimensions ── */
 const PAD_H = 0.01;
 const PAD_Y = PAD_H / 2;
-const BOX_W = 0.20;
+const BOX_W = 0.2;
 const BOX_H = 0.12;
 const BOX_D = 0.16;
 const BOX_Y = PAD_H + BOX_H / 2;
@@ -37,24 +37,42 @@ export function PersonalBox(props: ModelProps) {
         {/* Main body */}
         <mesh>
           <boxGeometry args={[BOX_W, BOX_H, BOX_D]} />
-          <meshStandardMaterial color={B.bright} roughness={0.85} metalness={0} flatShading />
+          <meshStandardMaterial
+            color={B.bright}
+            roughness={0.85}
+            metalness={0}
+            flatShading
+          />
         </mesh>
 
         {/* Bottom frame */}
         <mesh position={[0, -BOX_H / 2 + 0.008, 0]}>
           <boxGeometry args={[BOX_W + 0.01, 0.015, BOX_D + 0.01]} />
-          <meshStandardMaterial color={B.mid} roughness={0.9} metalness={0} flatShading />
+          <meshStandardMaterial
+            color={B.mid}
+            roughness={0.9}
+            metalness={0}
+            flatShading
+          />
         </mesh>
 
         {/* Top frame (under lid) */}
         <mesh position={[0, BOX_H / 2 - 0.005, 0]}>
           <boxGeometry args={[BOX_W + 0.005, 0.008, BOX_D + 0.005]} />
-          <meshStandardMaterial color={B.mid} roughness={0.9} metalness={0} flatShading />
+          <meshStandardMaterial
+            color={B.mid}
+            roughness={0.9}
+            metalness={0}
+            flatShading
+          />
         </mesh>
 
         {/* Metal corner straps — front & back vertical bands */}
         {[-1, 1].map((side) => (
-          <mesh key={`strap-${side}`} position={[side * (BOX_W / 2 - 0.005), 0, 0]}>
+          <mesh
+            key={`strap-${side}`}
+            position={[side * (BOX_W / 2 - 0.005), 0, 0]}
+          >
             <boxGeometry args={[0.008, BOX_H + 0.01, BOX_D + 0.005]} />
             <meshStandardMaterial color={B.dark} {...M} roughness={0.6} />
           </mesh>
@@ -72,18 +90,32 @@ export function PersonalBox(props: ModelProps) {
         {/* Lid panel */}
         <mesh position={[0, LID_H / 2, BOX_D / 2 - 0.01]}>
           <boxGeometry args={[BOX_W - 0.005, LID_H, BOX_D - 0.005]} />
-          <meshStandardMaterial color={B.bright} roughness={0.85} metalness={0} flatShading />
+          <meshStandardMaterial
+            color={B.bright}
+            roughness={0.85}
+            metalness={0}
+            flatShading
+          />
         </mesh>
 
         {/* Lid top detail — slightly raised center plank */}
         <mesh position={[0, LID_H + 0.004, BOX_D / 2 - 0.01]}>
           <boxGeometry args={[BOX_W * 0.6, 0.006, BOX_D * 0.5]} />
-          <meshStandardMaterial color={B.mid} roughness={0.9} metalness={0} flatShading />
+          <meshStandardMaterial
+            color={B.mid}
+            roughness={0.9}
+            metalness={0}
+            flatShading
+          />
         </mesh>
 
         {/* Hinge hardware (2 small cylinders at back edge) */}
-        {[-0.05, 0.05].map((x, i) => (
-          <mesh key={`hinge-${i}`} position={[x, 0.008, 0.005]} rotation={[0, 0, Math.PI / 2]}>
+        {[-0.05, 0.05].map((x) => (
+          <mesh
+            key={`hinge-${x.toFixed(3)}`}
+            position={[x, 0.008, 0.005]}
+            rotation={[0, 0, Math.PI / 2]}
+          >
             <cylinderGeometry args={[0.006, 0.006, 0.025, 6]} />
             <meshStandardMaterial color={B.dark} {...M} roughness={0.6} />
           </mesh>

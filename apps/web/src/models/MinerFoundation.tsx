@@ -1,9 +1,9 @@
-import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { AtomRef } from "effect/unstable/reactivity";
 import type { AtomRegistry } from "effect/unstable/reactivity";
-import { MeshStandardMaterial } from "three";
+import { AtomRef } from "effect/unstable/reactivity";
+import { useRef } from "react";
 import type { Group, Mesh } from "three";
+import { MeshStandardMaterial } from "three";
 import { MAT } from "./colors";
 import {
   type GrinderSmokeSpawn,
@@ -78,6 +78,10 @@ function GrindingBall({
 }
 
 const SMOKE_COUNT = 8;
+const GRINDER_SMOKE_KEYS = Array.from(
+  { length: SMOKE_COUNT },
+  (_, index) => `sm-${index}`,
+);
 
 function GrinderSmoke({ registry }: { registry: AtomRegistry.AtomRegistry }) {
   const refs = useRef<Mesh[]>([]);
@@ -105,7 +109,10 @@ function GrinderSmoke({ registry }: { registry: AtomRegistry.AtomRegistry }) {
       smoke.scale.setScalar(s);
       smoke.position.y += delta * 0.04;
       if (smoke.material instanceof MeshStandardMaterial) {
-        smoke.material.opacity = Math.max(0, smoke.material.opacity - delta * 0.6);
+        smoke.material.opacity = Math.max(
+          0,
+          smoke.material.opacity - delta * 0.6,
+        );
         if (smoke.material.opacity <= 0) {
           smoke.visible = false;
         }
@@ -119,13 +126,16 @@ function GrinderSmoke({ registry }: { registry: AtomRegistry.AtomRegistry }) {
 
     if (motion.nearBottom && !smokeState.value.wasAtBottom) {
       nextWasAtBottom = true;
-      nextSpawnQueue = Array.from({ length: SMOKE_COUNT }, (_, i): GrinderSmokeSpawn => ({
-        time: motion.elapsedTime + i * 0.06,
-        idx: i,
-        angle: Math.random() * Math.PI * 2,
-        radius: 0.07 + Math.random() * 0.06,
-        scale: 0.05 + Math.random() * 0.05,
-      }));
+      nextSpawnQueue = Array.from(
+        { length: SMOKE_COUNT },
+        (_, i): GrinderSmokeSpawn => ({
+          time: motion.elapsedTime + i * 0.06,
+          idx: i,
+          angle: Math.random() * Math.PI * 2,
+          radius: 0.07 + Math.random() * 0.06,
+          scale: 0.05 + Math.random() * 0.05,
+        }),
+      );
       smokeStateChanged = true;
     } else if (!motion.nearBottom && smokeState.value.wasAtBottom) {
       nextWasAtBottom = false;
@@ -171,9 +181,9 @@ function GrinderSmoke({ registry }: { registry: AtomRegistry.AtomRegistry }) {
 
   return (
     <group position={[0, -0.42, 0]}>
-      {Array.from({ length: SMOKE_COUNT }, (_, i) => (
+      {GRINDER_SMOKE_KEYS.map((smokeKey, i) => (
         <mesh
-          key={`sm-${i}`}
+          key={smokeKey}
           ref={(el) => {
             if (el) refs.current[i] = el;
           }}
@@ -227,7 +237,7 @@ export function MinerFoundation({
         const r = 0.175;
         return (
           <group
-            key={`up-${i}`}
+            key={`up-${a.toFixed(3)}`}
             position={[Math.sin(a) * r, 0.04, Math.cos(a) * r]}
             rotation={[0, -a, 0]}
           >
@@ -267,7 +277,7 @@ export function MinerFoundation({
         const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
         return (
           <mesh
-            key={`ua-${i}`}
+            key={`ua-${a.toFixed(3)}`}
             position={[Math.sin(a) * 0.18, 0.055, Math.cos(a) * 0.18]}
             rotation={[0, -a, 0]}
           >
@@ -303,16 +313,12 @@ export function MinerFoundation({
         const a = (i / 4) * Math.PI * 2;
         return (
           <mesh
-            key={`lp-${i}`}
+            key={`lp-${a.toFixed(3)}`}
             position={[Math.sin(a) * 0.205, -0.04, Math.cos(a) * 0.205]}
             rotation={[0, -a, 0]}
           >
             <boxGeometry args={[0.07, 0.045, 0.018]} />
-            <meshStandardMaterial
-              color={HULL_DARK}
-              {...MAT}
-              roughness={0.65}
-            />
+            <meshStandardMaterial color={HULL_DARK} {...MAT} roughness={0.65} />
           </mesh>
         );
       })}
@@ -324,7 +330,7 @@ export function MinerFoundation({
         const a = (i / 4) * Math.PI * 2 + Math.PI / 8;
         return (
           <mesh
-            key={`pp-${i}`}
+            key={`pp-${a.toFixed(3)}`}
             position={[Math.sin(a) * 0.19, 0, Math.cos(a) * 0.19]}
           >
             <cylinderGeometry args={[0.007, 0.007, 0.14, 6]} />
@@ -342,7 +348,7 @@ export function MinerFoundation({
         const a = (i / 8) * Math.PI * 2;
         return (
           <mesh
-            key={`bt-${i}`}
+            key={`bt-${a.toFixed(3)}`}
             position={[Math.sin(a) * 0.21, -0.098, Math.cos(a) * 0.21]}
           >
             <cylinderGeometry args={[0.01, 0.01, 0.012, 6]} />
@@ -357,12 +363,8 @@ export function MinerFoundation({
         const a = (i / LEG_COUNT) * Math.PI * 2 + Math.PI / 4;
         return (
           <group
-            key={`la-${i}`}
-            position={[
-              Math.sin(a) * LEG_RADIUS,
-              0,
-              Math.cos(a) * LEG_RADIUS,
-            ]}
+            key={`la-${a.toFixed(3)}`}
+            position={[Math.sin(a) * LEG_RADIUS, 0, Math.cos(a) * LEG_RADIUS]}
           >
             {/* Chunky mount bracket — rotated to face outward */}
             <group rotation={[0, -a, 0]}>
@@ -377,11 +379,7 @@ export function MinerFoundation({
               {/* Bracket accent stripe */}
               <mesh position={[0, -0.02, 0.04]}>
                 <boxGeometry args={[0.025, 0.028, 0.018]} />
-                <meshStandardMaterial
-                  color={ACCENT}
-                  {...MAT}
-                  roughness={0.5}
-                />
+                <meshStandardMaterial color={ACCENT} {...MAT} roughness={0.5} />
               </mesh>
               {/* Bracket top lip */}
               <mesh position={[0, 0.038, 0]}>
@@ -394,7 +392,11 @@ export function MinerFoundation({
               </mesh>
             </group>
 
-            <MinerLeg direction={a} registry={registry} groundDistance={groundDistance} />
+            <MinerLeg
+              direction={a}
+              registry={registry}
+              groundDistance={groundDistance}
+            />
           </group>
         );
       })}
@@ -432,7 +434,7 @@ export function MinerFoundation({
       </mesh>
 
       {/* Shaft ring — lower */}
-      <mesh position={[0, -0.30, 0]}>
+      <mesh position={[0, -0.3, 0]}>
         <cylinderGeometry args={[0.095, 0.095, 0.02, 8]} />
         <meshStandardMaterial color={HULL_MID} {...MAT} roughness={0.5} />
       </mesh>
@@ -442,7 +444,7 @@ export function MinerFoundation({
         const a = (i / 3) * Math.PI * 2;
         return (
           <mesh
-            key={`st-${i}`}
+            key={`st-${a.toFixed(3)}`}
             position={[Math.sin(a) * 0.075, -0.12, Math.cos(a) * 0.075]}
             rotation={[0, a, 0]}
           >
@@ -488,7 +490,7 @@ export function MinerFoundation({
         { a: 0, r: 0, y: -0.43 },
       ].map((b, i) => (
         <GrindingBall
-          key={`gb-${i}`}
+          key={`gb-${b.a.toFixed(3)}-${b.r.toFixed(3)}-${b.y.toFixed(3)}`}
           position={[Math.sin(b.a) * b.r, b.y, Math.cos(b.a) * b.r]}
           registry={registry}
           spinOffset={i * 0.5}

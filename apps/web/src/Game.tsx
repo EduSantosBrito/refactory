@@ -1,6 +1,6 @@
-import { useEffect, useRef, type ComponentRef, type RefObject } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { type ComponentRef, type RefObject, useEffect, useRef } from "react";
 import { MOUSE, Spherical, TOUCH, Vector3 } from "three";
 import { CharacterViewer } from "./scenes/CharacterViewer";
 
@@ -179,7 +179,8 @@ function KeyboardCameraControls({
     const horizontal = Number(keys.ArrowRight) - Number(keys.ArrowLeft);
     const vertical = Number(keys.ArrowUp) - Number(keys.ArrowDown);
     const zoom =
-      Number(keys.PageUp || keys["+"] || keys["="]) - Number(keys.PageDown || keys["-"] || keys._);
+      Number(keys.PageUp || keys["+"] || keys["="]) -
+      Number(keys.PageDown || keys["-"] || keys._);
 
     let hasMoved = false;
 
@@ -193,7 +194,10 @@ function KeyboardCameraControls({
         orbitSpherical.phi -= vertical * ROTATION_SPEED * delta;
         orbitSpherical.phi = Math.max(
           controls.minPolarAngle + MIN_POLAR_EPSILON,
-          Math.min(controls.maxPolarAngle - MIN_POLAR_EPSILON, orbitSpherical.phi),
+          Math.min(
+            controls.maxPolarAngle - MIN_POLAR_EPSILON,
+            orbitSpherical.phi,
+          ),
         );
 
         orbitOffset.setFromSpherical(orbitSpherical);
@@ -217,7 +221,7 @@ function KeyboardCameraControls({
 
     if (zoom !== 0) {
       const camera = controls.object;
-      const zoomFactor = Math.pow(ZOOM_STEP, delta * 60);
+      const zoomFactor = ZOOM_STEP ** (delta * 60);
 
       orbitOffset.subVectors(camera.position, controls.target);
       orbitSpherical.setFromVector3(orbitOffset);
@@ -225,7 +229,9 @@ function KeyboardCameraControls({
         MIN_DISTANCE,
         Math.min(
           MAX_DISTANCE,
-          zoom > 0 ? orbitSpherical.radius / zoomFactor : orbitSpherical.radius * zoomFactor,
+          zoom > 0
+            ? orbitSpherical.radius / zoomFactor
+            : orbitSpherical.radius * zoomFactor,
         ),
       );
 
@@ -264,7 +270,11 @@ export function Game({ isPaused = false }: { readonly isPaused?: boolean }) {
       <directionalLight position={[8, 12, 6]} intensity={1.5} color="#fff5e0" />
 
       {/* Fill light — soft blue from the opposite side */}
-      <directionalLight position={[-5, 8, -4]} intensity={0.4} color="#a0c8e8" />
+      <directionalLight
+        position={[-5, 8, -4]}
+        intensity={0.4}
+        color="#a0c8e8"
+      />
 
       {/* Soft ambient so nothing is pure black */}
       <ambientLight intensity={0.25} color="#e8d8c8" />

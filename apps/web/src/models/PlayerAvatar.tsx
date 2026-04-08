@@ -1,8 +1,8 @@
-import { useRef, useMemo } from "react";
-import { useFrame } from "@react-three/fiber";
 import { useGLTF, useTexture } from "@react-three/drei";
-import { NearestFilter, SRGBColorSpace } from "three";
+import { useFrame } from "@react-three/fiber";
+import { useMemo, useRef } from "react";
 import type { Group, Mesh, MeshStandardMaterial } from "three";
+import { NearestFilter, SRGBColorSpace } from "three";
 import type { ModelProps } from "./colors";
 
 const MODEL_PATH = "/models/character-male-e.glb";

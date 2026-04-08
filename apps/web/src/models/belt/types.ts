@@ -58,12 +58,17 @@ export type BeltContentState = "empty" | "filled";
 
 export type BeltSegmentType = "straight" | "curve";
 
+/** Which end(s) get a termination bracket */
+export type BeltEndCap = "start" | "end" | "both";
+
 /** Props shared by BeltSegment and BeltCurve */
 export interface BeltSegmentProps extends ModelProps {
   power?: BeltPowerState;
   content?: BeltContentState;
   ratePerMinute?: number;
   speed?: number;
+  /** Render terminus bracket at start, end, or both ends */
+  endCap?: BeltEndCap;
 }
 
 /* ── Chain types ──────────────────────────────────────────── */

@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "vp dev",
     "build": "vp build",
-    "check": "vp check"
+    "check": "tsgo --noEmit -p tsconfig.json",
+    "lint": "biome lint .",
+    "format": "biome check . --formatter-enabled=true --linter-enabled=false --assist-enabled=false"
   },
   "dependencies": {
     "@refactory/contracts": "workspace:*",

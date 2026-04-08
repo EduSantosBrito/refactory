@@ -1,61 +1,62 @@
 /* ── Belt segment components ─────────────────────────────── */
 
-export { BeltSegment } from "./BeltSegment";
-export { STRAIGHT_PORTS } from "./BeltSegment";
-
-export { BeltCurve } from "./BeltCurve";
-export { CURVE_PORTS } from "./BeltCurve";
-
+export type { BeltChainProps } from "./BeltChain";
 export {
   BeltChain,
-  getChainPosition,
   computeChainPath,
+  getChainPosition,
   getSegmentLocalPosition,
 } from "./BeltChain";
-export type { BeltChainProps } from "./BeltChain";
+export { BeltCurve, CURVE_PORTS } from "./BeltCurve";
+export { BeltSegment, STRAIGHT_PORTS } from "./BeltSegment";
+export type { MinerPortDockProps } from "./MinerPortDock";
+export { MinerPortDock } from "./MinerPortDock";
+export type { PortHighlight } from "./PortDock";
+export { PortDock } from "./PortDock";
 
 /* ── Constants ───────────────────────────────────────────── */
 
 export {
-  BELT_TILE,
-  BELT_SPEED,
-  DEFAULT_BELT_RATE_PER_MINUTE,
-  BELT_TARGET_ITEM_SPACING,
-  SURFACE_W,
-  FRAME_W,
   BELT_COLORS,
   BELT_MAT,
+  BELT_SPEED,
+  BELT_TARGET_ITEM_SPACING,
+  BELT_TILE,
   CURVE_ARC_LENGTH,
+  DEFAULT_BELT_RATE_PER_MINUTE,
+  FRAME_W,
   getBeltLoopItemCount,
   resolveBeltSpeed,
+  SURFACE_W,
 } from "./constants";
 
 /* ── Types ───────────────────────────────────────────────── */
 
 export type {
-  PortFacing,
-  PortRole,
+  BeltContentState,
+  BeltEndCap,
   BeltPort,
   BeltPowerState,
-  BeltContentState,
-  BeltSegmentType,
   BeltSegmentProps,
-  ChainSegment,
+  BeltSegmentType,
+  BuildingPorts,
   ChainItem,
   ChainPath,
   ChainPosition,
-  BuildingPorts,
+  ChainSegment,
+  PortFacing,
+  PortRole,
 } from "./types";
 
-export { PORT_NORMALS, OPPOSITE_FACING, canConnect } from "./types";
+export { canConnect, OPPOSITE_FACING, PORT_NORMALS } from "./types";
 
 /* ── Building port definitions ───────────────────────────── */
 
 export {
-  MINER_PORTS,
-  SMELTER_PORTS,
-  PROCESSOR_PORTS,
-  SPLITTER_PORTS,
   MERGER_PORTS,
+  MINER_PORTS,
   MODULAR_STORAGE_PORTS,
+  PROCESSOR_PORTS,
+  SMELTER_PORTS,
+  SPLITTER_PORTS,
 } from "./ports";

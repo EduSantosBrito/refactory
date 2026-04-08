@@ -1,24 +1,18 @@
-import { useEffect, useRef, useState, memo, startTransition } from "react";
+import type { AssetId } from "@refactory/contracts/worlds";
 import { useFrame, useThree } from "@react-three/fiber";
-import { Array, pipe } from "effect";
-import * as THREE from "three";
+import { Array as EffectArray, pipe } from "effect";
 import {
-  OakTree,
-  PineTree,
-  DetailedTree,
-  FlatTopTree,
-  DeadTree,
-  Bush,
-  GrassClump,
-  Flower,
-  Mushroom,
-  Rock,
-  RockFormation,
-  Stump,
-  Log,
-  ResourceNode,
-} from "../models";
-import type { ResourceType, PurityTier } from "../models";
+  lazy,
+  memo,
+  startTransition,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import * as THREE from "three";
+import type { PurityTier, ResourceType } from "../models/ResourceNode";
+import { ResourceNode } from "../models/ResourceNode";
 
 /* ── Animal Crossing curved horizon ────────────────────────── */
 /* Override the vertex projection to curve the world downward   */
@@ -47,17 +41,34 @@ THREE.ShaderChunk.project_vertex = /* glsl */ `
   mvPosition = viewMatrix * worldPos;
   gl_Position = projectionMatrix * mvPosition;
 `;
-import { biomeAt, biomeDensity, groundColor, type Biome } from "./terrain";
-import { isInWater, lakeDepthFactor, WaterSurface, WATER_COLOR } from "./water";
+
+import { buildSpatialHash, type NatureEl, type SpatialHash } from "./collision";
+import { WORLD_RADIUS } from "./constants";
 import { surfaceHeightAt } from "./surface";
-import { buildSpatialHash, type SpatialHash, type NatureEl } from "./collision";
-import { PlayerController } from "./PlayerController";
+import { type Biome, biomeAt, biomeDensity, groundColor } from "./terrain";
+import { isInWater, lakeDepthFactor, WATER_COLOR, WaterSurface } from "./water";
+import { logWorldLoadEvent } from "./worldLoadLog";
+
+const WORLD_VISUAL_READY_EVENT = "world-visual-ready";
+
+const PlayerController = lazy(() =>
+  import("./PlayerController").then((module) => ({
+    default: module.PlayerController,
+  })),
+);
+
+const WorldNature = lazy(() =>
+  import("./WorldNature").then((module) => ({
+    default: module.WorldNature,
+  })),
+);
 
 /* ── Seeded PRNG (mulberry32) ──────────────────────────────── */
 
 function mulberry32(seed: number) {
   return () => {
-    let t = (seed += 0x6d2b79f5);
+    seed += 0x6d2b79f5;
+    let t = seed;
     t = Math.imul(t ^ (t >>> 15), 1 | t);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
@@ -82,9 +93,6 @@ const TOPOGRAPHIC_STEP = 0.45;
 const TOPOGRAPHIC_LINE_WIDTH = 0.08;
 const TOPOGRAPHIC_STRENGTH = 0.14;
 
-/** Max walkable distance from origin. Terrain extends beyond for visual continuity. */
-export const WORLD_RADIUS = 180;
-
 /* ── Chunk helpers ─────────────────────────────────────────── */
 
 function worldToChunk(v: number): number {
@@ -106,10 +114,18 @@ const _tmpColor = new THREE.Color();
 const _waterTint = new THREE.Color(WATER_COLOR);
 
 function buildTerrainGeometry(cx: number, cz: number): THREE.BufferGeometry {
-  const geo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, TERRAIN_SUBDIVS, TERRAIN_SUBDIVS);
+  const geo = new THREE.PlaneGeometry(
+    CHUNK_SIZE,
+    CHUNK_SIZE,
+    TERRAIN_SUBDIVS,
+    TERRAIN_SUBDIVS,
+  );
   geo.rotateX(-Math.PI / 2);
 
-  const pos = geo.attributes.position!;
+  const pos = geo.attributes.position;
+  if (!pos) {
+    return geo;
+  }
   const colors: number[] = [];
   const originX = cx * CHUNK_SIZE;
   const originZ = cz * CHUNK_SIZE;
@@ -204,7 +220,10 @@ function natureCullRadius(type: string, sc: number): number {
 
 function updateViewFrustum(camera: THREE.Camera) {
   camera.updateMatrixWorld();
-  frustumProjectionMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  frustumProjectionMatrix.multiplyMatrices(
+    camera.projectionMatrix,
+    camera.matrixWorldInverse,
+  );
   worldFrustum.setFromProjectionMatrix(frustumProjectionMatrix);
 }
 
@@ -222,7 +241,10 @@ function sameRefs<A>(left: readonly A[], right: readonly A[]): boolean {
   return true;
 }
 
-function sameVisibleChunks(left: readonly VisibleChunk[], right: readonly VisibleChunk[]): boolean {
+function sameVisibleChunks(
+  left: readonly VisibleChunk[],
+  right: readonly VisibleChunk[],
+): boolean {
   if (left.length !== right.length) return false;
 
   for (let i = 0; i < left.length; i++) {
@@ -243,12 +265,15 @@ function sameVisibleChunks(left: readonly VisibleChunk[], right: readonly Visibl
   return true;
 }
 
-function collectVisibleChunks(keys: readonly string[], camera: THREE.Camera): VisibleChunk[] {
+function collectVisibleChunks(
+  keys: readonly string[],
+  camera: THREE.Camera,
+): VisibleChunk[] {
   updateViewFrustum(camera);
 
   return pipe(
     keys,
-    Array.flatMap((key) => {
+    EffectArray.flatMap((key) => {
       const data = chunkDataCache.get(key);
       if (!data || !isBoundsVisible(data.terrainBounds)) {
         return [];
@@ -264,11 +289,11 @@ function collectVisibleChunks(keys: readonly string[], camera: THREE.Camera): Vi
           geometry: data.geometry,
           elements: pipe(
             data.elements,
-            Array.filter((element) => isBoundsVisible(element.bounds)),
+            EffectArray.filter((element) => isBoundsVisible(element.bounds)),
           ),
           resources: pipe(
             data.resources,
-            Array.filter((resource) => isBoundsVisible(resource.bounds)),
+            EffectArray.filter((resource) => isBoundsVisible(resource.bounds)),
           ),
         },
       ];
@@ -305,7 +330,8 @@ function pickNature(biome: Biome, rng: () => number): NaturePick {
           size: rng() < 0.5 ? "sm" : "md",
           sc: 3 + rng() * 2,
         };
-      if (r < 0.68) return { type: "mushroom", size: "sm", sc: 3 + rng() * 1.5 };
+      if (r < 0.68)
+        return { type: "mushroom", size: "sm", sc: 3 + rng() * 1.5 };
       if (r < 0.76) return { type: "grass", size: "sm", sc: 3 + rng() };
       if (r < 0.82) return { type: "flower", size: "sm", sc: 3 + rng() };
       if (r < 0.88)
@@ -527,7 +553,12 @@ function spawnChunkResource(
     resource,
     purity,
     ry: rng() * Math.PI * 2,
-    bounds: makeBounds(x, y + RESOURCE_CULL_RADIUS * 0.4, z, RESOURCE_CULL_RADIUS),
+    bounds: makeBounds(
+      x,
+      y + RESOURCE_CULL_RADIUS * 0.4,
+      z,
+      RESOURCE_CULL_RADIUS,
+    ),
   };
 }
 
@@ -568,7 +599,12 @@ function getOrCreateChunk(cx: number, cz: number): ChunkData {
       geometry: buildTerrainGeometry(cx, cz),
       elements: generateChunkNature(cx, cz),
       resources: generateChunkResources(cx, cz),
-      terrainBounds: makeBounds(cx * CHUNK_SIZE, 2, cz * CHUNK_SIZE, TERRAIN_CULL_RADIUS),
+      terrainBounds: makeBounds(
+        cx * CHUNK_SIZE,
+        2,
+        cz * CHUNK_SIZE,
+        TERRAIN_CULL_RADIUS,
+      ),
     };
     chunkDataCache.set(key, data);
   }
@@ -579,7 +615,10 @@ function evictDistantChunks(playerCx: number, playerCz: number) {
   const maxDist = TERRAIN_RENDER_DIST + 2;
   for (const [key, data] of chunkDataCache) {
     const [cx, cz] = parseChunkKey(key);
-    if (Math.abs(cx - playerCx) > maxDist || Math.abs(cz - playerCz) > maxDist) {
+    if (
+      Math.abs(cx - playerCx) > maxDist ||
+      Math.abs(cz - playerCz) > maxDist
+    ) {
       data.geometry.dispose();
       chunkDataCache.delete(key);
     }
@@ -657,56 +696,6 @@ const TerrainChunk = memo(function TerrainChunk({
   );
 });
 
-const NatureItem = memo(function NatureItem({ el }: { readonly el: NatureRenderEl }) {
-  const pos: [number, number, number] = [el.x, el.y, el.z];
-  const rot: [number, number, number] = [0, el.ry, 0];
-
-  switch (el.type) {
-    case "oak":
-      return <OakTree position={pos} rotation={rot} scale={el.sc} size={el.size} />;
-    case "pine":
-      return <PineTree position={pos} rotation={rot} scale={el.sc} size={el.size} />;
-    case "detailed":
-      return <DetailedTree position={pos} rotation={rot} scale={el.sc} size={el.size} />;
-    case "flattop":
-      return <FlatTopTree position={pos} rotation={rot} scale={el.sc} size={el.size} />;
-    case "dead":
-      return <DeadTree position={pos} rotation={rot} scale={el.sc} size={el.size} />;
-    case "bush":
-      return <Bush position={pos} rotation={rot} scale={el.sc} size={el.size} />;
-    case "rock":
-      return <Rock position={pos} rotation={rot} scale={el.sc} size={el.size} />;
-    case "formation":
-      return <RockFormation position={pos} rotation={rot} scale={el.sc} size={el.size} />;
-    case "stump":
-      return <Stump position={pos} rotation={rot} scale={el.sc} size={el.size} />;
-    case "grass":
-      return <GrassClump position={pos} rotation={rot} scale={el.sc} />;
-    case "flower":
-      return <Flower position={pos} rotation={rot} scale={el.sc} />;
-    case "mushroom":
-      return <Mushroom position={pos} rotation={rot} scale={el.sc} />;
-    case "log":
-      return <Log position={pos} rotation={rot} scale={el.sc} />;
-    default:
-      return null;
-  }
-});
-
-const NatureChunk = memo(function NatureChunk({
-  elements,
-}: {
-  elements: readonly NatureRenderEl[];
-}) {
-  return (
-    <group>
-      {elements.map((el) => (
-        <NatureItem key={el.id} el={el} />
-      ))}
-    </group>
-  );
-});
-
 /* ── Spatial hash rebuild helper ────────────────────────────── */
 
 function rebuildSpatialHash(cx: number, cz: number): SpatialHash {
@@ -723,28 +712,59 @@ function rebuildSpatialHash(cx: number, cz: number): SpatialHash {
 /** Max new chunks to generate per frame — prevents frame spikes */
 const GEN_BUDGET_PER_FRAME = 2;
 
+type InitialWorldSceneData = {
+  keys: string[];
+  spatialHash: SpatialHash;
+};
+
+let initialWorldSceneData: InitialWorldSceneData | undefined;
+
+function buildInitialWorldSceneData(): InitialWorldSceneData {
+  const keys: string[] = [];
+  for (let dx = -TERRAIN_RENDER_DIST; dx <= TERRAIN_RENDER_DIST; dx++) {
+    for (let dz = -TERRAIN_RENDER_DIST; dz <= TERRAIN_RENDER_DIST; dz++) {
+      keys.push(chunkKey(dx, dz));
+      getOrCreateChunk(dx, dz);
+    }
+  }
+
+  return {
+    keys,
+    spatialHash: rebuildSpatialHash(0, 0),
+  };
+}
+
+function getInitialWorldSceneData(): InitialWorldSceneData {
+  initialWorldSceneData ??= buildInitialWorldSceneData();
+  return initialWorldSceneData;
+}
+
+export function preloadInitialWorldSceneData(): void {
+  void getInitialWorldSceneData();
+}
+
 /* ── Scene root ────────────────────────────────────────────── */
 
-export function WorldScene({ isPaused = false }: { readonly isPaused?: boolean }) {
+export function WorldScene({
+  assetId,
+  isPaused = false,
+}: {
+  readonly assetId: AssetId;
+  readonly isPaused?: boolean;
+}) {
+  const initialWorldData = getInitialWorldSceneData();
   const camera = useThree((state) => state.camera);
   const playerPosRef = useRef(new THREE.Vector3());
-  const spatialHashRef = useRef<SpatialHash>(buildSpatialHash([]));
+  const spatialHashRef = useRef<SpatialHash>(initialWorldData.spatialHash);
   const prevChunkRef = useRef({ cx: 0, cz: 0 });
   const genQueueRef = useRef<[number, number][]>([]);
   const targetKeysRef = useRef<string[]>([]);
   const visibilityElapsedRef = useRef(0);
+  const hasLoggedReadyRef = useRef(false);
 
-  const [activeKeys, setActiveKeys] = useState<string[]>(() => {
-    const keys: string[] = [];
-    for (let dx = -TERRAIN_RENDER_DIST; dx <= TERRAIN_RENDER_DIST; dx++) {
-      for (let dz = -TERRAIN_RENDER_DIST; dz <= TERRAIN_RENDER_DIST; dz++) {
-        keys.push(chunkKey(dx, dz));
-        getOrCreateChunk(dx, dz);
-      }
-    }
-    spatialHashRef.current = rebuildSpatialHash(0, 0);
-    return keys;
-  });
+  const [activeKeys, setActiveKeys] = useState<string[]>(() => [
+    ...initialWorldData.keys,
+  ]);
   const activeKeysRef = useRef(activeKeys);
   const [visibleChunks, setVisibleChunks] = useState<VisibleChunk[]>(() =>
     collectVisibleChunks(activeKeys, camera),
@@ -754,9 +774,33 @@ export function WorldScene({ isPaused = false }: { readonly isPaused?: boolean }
     activeKeysRef.current = activeKeys;
     const nextVisibleChunks = collectVisibleChunks(activeKeys, camera);
     setVisibleChunks((current) =>
-      sameVisibleChunks(current, nextVisibleChunks) ? current : nextVisibleChunks,
+      sameVisibleChunks(current, nextVisibleChunks)
+        ? current
+        : nextVisibleChunks,
     );
   }, [activeKeys, camera]);
+
+  useEffect(() => {
+    if (visibleChunks.length === 0 || hasLoggedReadyRef.current) {
+      return;
+    }
+
+    let firstFrameId = 0;
+    let secondFrameId = 0;
+
+    firstFrameId = window.requestAnimationFrame(() => {
+      secondFrameId = window.requestAnimationFrame(() => {
+        hasLoggedReadyRef.current = true;
+        logWorldLoadEvent("Threejs fully loaded and game is playable");
+        window.dispatchEvent(new Event(WORLD_VISUAL_READY_EVENT));
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrameId);
+      window.cancelAnimationFrame(secondFrameId);
+    };
+  }, [visibleChunks]);
 
   useFrame((_, delta) => {
     /* ── 1. Process generation queue (spread across frames) ── */
@@ -815,9 +859,14 @@ export function WorldScene({ isPaused = false }: { readonly isPaused?: boolean }
     if (visibilityElapsedRef.current < VISIBILITY_UPDATE_INTERVAL) return;
 
     visibilityElapsedRef.current = 0;
-    const nextVisibleChunks = collectVisibleChunks(activeKeysRef.current, camera);
+    const nextVisibleChunks = collectVisibleChunks(
+      activeKeysRef.current,
+      camera,
+    );
     setVisibleChunks((current) =>
-      sameVisibleChunks(current, nextVisibleChunks) ? current : nextVisibleChunks,
+      sameVisibleChunks(current, nextVisibleChunks)
+        ? current
+        : nextVisibleChunks,
     );
   });
 
@@ -827,7 +876,11 @@ export function WorldScene({ isPaused = false }: { readonly isPaused?: boolean }
         return (
           <group key={key}>
             <TerrainChunk cx={cx} cz={cz} geometry={geometry} />
-            {elements.length > 0 && <NatureChunk elements={elements} />}
+            {elements.length > 0 ? (
+              <Suspense fallback={null}>
+                <WorldNature elements={elements} />
+              </Suspense>
+            ) : null}
             {resources.map((r) => (
               <ResourceNode
                 key={`${r.x},${r.z}`}
@@ -842,11 +895,14 @@ export function WorldScene({ isPaused = false }: { readonly isPaused?: boolean }
         );
       })}
       <WaterSurface />
-      <PlayerController
-        enabled={!isPaused}
-        playerPosRef={playerPosRef}
-        spatialHashRef={spatialHashRef}
-      />
+      <Suspense fallback={null}>
+        <PlayerController
+          assetId={assetId}
+          enabled={!isPaused}
+          playerPosRef={playerPosRef}
+          spatialHashRef={spatialHashRef}
+        />
+      </Suspense>
     </>
   );
 }

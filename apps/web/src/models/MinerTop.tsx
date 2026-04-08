@@ -1,6 +1,6 @@
+import { Antenna } from "./Antenna";
 import { MAT, type ModelProps } from "./colors";
 import { StatusPole, type StatusPoleStatus } from "./StatusPole";
-import { Antenna } from "./Antenna";
 
 // Industrial palette (matching MinerFoundation)
 const HULL_DARK = "#2d3550";
@@ -42,7 +42,7 @@ export function MinerTop({ status = "green", ...props }: MinerTopProps) {
         const a = (i / (SIDES * 2)) * Math.PI * 2;
         return (
           <mesh
-            key={`ob-${i}`}
+            key={`ob-${a.toFixed(3)}`}
             position={[Math.sin(a) * 0.34, 0.008, Math.cos(a) * 0.34]}
           >
             <cylinderGeometry args={[0.007, 0.007, 0.012, 6]} />
@@ -69,10 +69,10 @@ export function MinerTop({ status = "green", ...props }: MinerTopProps) {
         const r = 0.315;
         const isCardinal = i % 2 === 0;
         const panelW = isCardinal ? 0.12 : 0.09;
-        const panelH = isCardinal ? 0.10 : 0.075;
+        const panelH = isCardinal ? 0.1 : 0.075;
         return (
           <group
-            key={`sp-${i}`}
+            key={`sp-${a.toFixed(3)}`}
             position={[Math.sin(a) * r, 0.14, Math.cos(a) * r]}
             rotation={[0, -a, 0]}
           >
@@ -111,7 +111,7 @@ export function MinerTop({ status = "green", ...props }: MinerTopProps) {
       {Array.from({ length: SIDES }, (_, i) => {
         const a = (i / SIDES) * Math.PI * 2 + Math.PI / SIDES;
         return (
-          <group key={`br-${i}`}>
+          <group key={`br-${a.toFixed(3)}`}>
             {/* Bracket block */}
             <mesh
               position={[Math.sin(a) * 0.31, 0.11, Math.cos(a) * 0.31]}
@@ -121,9 +121,7 @@ export function MinerTop({ status = "green", ...props }: MinerTopProps) {
               <meshStandardMaterial color={ACCENT} {...MAT} roughness={0.5} />
             </mesh>
             {/* Conduit pipe */}
-            <mesh
-              position={[Math.sin(a) * 0.315, 0.14, Math.cos(a) * 0.315]}
-            >
+            <mesh position={[Math.sin(a) * 0.315, 0.14, Math.cos(a) * 0.315]}>
               <cylinderGeometry args={[0.005, 0.005, 0.11, 5]} />
               <meshStandardMaterial color={ACCENT} {...MAT} roughness={0.45} />
             </mesh>
@@ -136,7 +134,7 @@ export function MinerTop({ status = "green", ...props }: MinerTopProps) {
         const a = (i / 4) * Math.PI * 2 + Math.PI / 8;
         return (
           <mesh
-            key={`vp-${i}`}
+            key={`vp-${a.toFixed(3)}`}
             position={[Math.sin(a) * 0.31, 0.14, Math.cos(a) * 0.31]}
           >
             <cylinderGeometry args={[0.007, 0.007, 0.16, 6]} />
@@ -152,7 +150,7 @@ export function MinerTop({ status = "green", ...props }: MinerTopProps) {
       {/* ── Upper window band ──────────────────────── */}
       {/* Dark tinted viewport section */}
       <mesh position={[0, 0.245, 0]}>
-        <cylinderGeometry args={[0.275, 0.30, 0.065, SIDES]} />
+        <cylinderGeometry args={[0.275, 0.3, 0.065, SIDES]} />
         <meshStandardMaterial
           color={WINDOW}
           {...MAT}
@@ -178,16 +176,12 @@ export function MinerTop({ status = "green", ...props }: MinerTopProps) {
         const a = (i / 4) * Math.PI * 2;
         return (
           <mesh
-            key={`wd-${i}`}
+            key={`wd-${a.toFixed(3)}`}
             position={[Math.sin(a) * 0.288, 0.245, Math.cos(a) * 0.288]}
             rotation={[0, -a, 0]}
           >
             <boxGeometry args={[0.007, 0.065, 0.018]} />
-            <meshStandardMaterial
-              color={HULL_LIGHT}
-              {...MAT}
-              roughness={0.5}
-            />
+            <meshStandardMaterial color={HULL_LIGHT} {...MAT} roughness={0.5} />
           </mesh>
         );
       })}
@@ -216,7 +210,7 @@ export function MinerTop({ status = "green", ...props }: MinerTopProps) {
         const a = (i / 4) * Math.PI * 2 + Math.PI / 8;
         return (
           <mesh
-            key={`rv-${i}`}
+            key={`rv-${a.toFixed(3)}`}
             position={[Math.sin(a) * 0.19, 0.326, Math.cos(a) * 0.19]}
             rotation={[Math.PI / 2, 0, -a]}
           >

@@ -1,8 +1,14 @@
-import { memo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { CylinderGeometry, SphereGeometry } from "three";
+import { memo, useRef } from "react";
 import type { Group } from "three";
-import { COLORS, FOLIAGE, BARK, type ModelProps, type TreeSize } from "../colors";
+import { CylinderGeometry, SphereGeometry } from "three";
+import {
+  BARK,
+  COLORS,
+  FOLIAGE,
+  type ModelProps,
+  type TreeSize,
+} from "../colors";
 
 /**
  * Detailed — clustered round canopy, richer than oak at every stage.
@@ -21,7 +27,7 @@ const trunkMd = new CylinderGeometry(0.028, 0.065, 0.26, 6);
 const trunkLg = new CylinderGeometry(0.055, 0.15, 0.34, 6);
 
 const sA = new SphereGeometry(0.28, 8, 6);
-const sB = new SphereGeometry(0.20, 7, 5);
+const sB = new SphereGeometry(0.2, 7, 5);
 const sC = new SphereGeometry(0.17, 7, 5);
 const sD = new SphereGeometry(0.14, 6, 4);
 const sE = new SphereGeometry(0.12, 6, 4);
@@ -36,7 +42,8 @@ export const DetailedTree = memo(function DetailedTree({
   useFrame((state) => {
     if (!ref.current) return;
     const t = state.clock.getElapsedTime();
-    ref.current.rotation.z = Math.sin(t * 0.65 + (props.position?.[0] ?? 0)) * 0.012;
+    ref.current.rotation.z =
+      Math.sin(t * 0.65 + (props.position?.[0] ?? 0)) * 0.012;
   });
 
   return (
@@ -50,7 +57,7 @@ export const DetailedTree = memo(function DetailedTree({
             <mesh geometry={sE} position={[0, 0.22, 0]}>
               <meshStandardMaterial color={COLORS.canopy} {...FOLIAGE} />
             </mesh>
-            <mesh geometry={sF} position={[0.10, 0.18, 0.04]}>
+            <mesh geometry={sF} position={[0.1, 0.18, 0.04]}>
               <meshStandardMaterial color={COLORS.canopyLight} {...FOLIAGE} />
             </mesh>
           </group>
@@ -89,7 +96,7 @@ export const DetailedTree = memo(function DetailedTree({
             <mesh geometry={sC} position={[-0.22, 0.48, -0.07]}>
               <meshStandardMaterial color={COLORS.canopyDark} {...FOLIAGE} />
             </mesh>
-            <mesh geometry={sD} position={[0.06, 0.44, 0.20]}>
+            <mesh geometry={sD} position={[0.06, 0.44, 0.2]}>
               <meshStandardMaterial color={COLORS.canopy} {...FOLIAGE} />
             </mesh>
             <mesh geometry={sD} position={[0.03, 0.76, 0.02]}>

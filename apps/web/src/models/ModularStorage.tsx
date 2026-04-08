@@ -11,7 +11,7 @@ const HULL_BRIGHT = "#b0b4ba";
 const ACCENT = "#e8945a";
 const WINDOW_COLOR = "#1a1e2a";
 
-const DOOR_COUNT = 6;
+const PORT_COUNT = 4;
 
 // Hex body circumradius — face width equals this value, must be ≥ belt tile width (1.0)
 const HEX_BOTTOM_R = 1.05;
@@ -95,9 +95,9 @@ export function ModularStorage({
         status={status}
       />
 
-      {/* ── 6 entrance docks (belt-width, aligned to hex faces) ── */}
-      {Array.from({ length: DOOR_COUNT }, (_, i) => {
-        const angle = (i / DOOR_COUNT) * Math.PI * 2 + Math.PI / 6;
+      {/* ── 4 input ports, one per cardinal side ─────────────── */}
+      {Array.from({ length: PORT_COUNT }, (_, i) => {
+        const angle = (i / PORT_COUNT) * Math.PI * 2;
         const x = Math.sin(angle) * DOCK_RADIUS;
         const z = Math.cos(angle) * DOCK_RADIUS;
         return (

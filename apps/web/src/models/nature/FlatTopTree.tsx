@@ -1,8 +1,14 @@
-import { memo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { CylinderGeometry, SphereGeometry } from "three";
+import { memo, useRef } from "react";
 import type { Group } from "three";
-import { COLORS, FOLIAGE, BARK, type ModelProps, type TreeSize } from "../colors";
+import { CylinderGeometry, SphereGeometry } from "three";
+import {
+  BARK,
+  COLORS,
+  FOLIAGE,
+  type ModelProps,
+  type TreeSize,
+} from "../colors";
 
 /**
  * Flat-top — horizontal disc canopy, growth-based.
@@ -24,7 +30,7 @@ const trunkLg = new CylinderGeometry(0.05, 0.12, 0.24, 6);
 const discSm = new SphereGeometry(0.13, 7, 4);
 const discMd = new SphereGeometry(0.24, 8, 5);
 const discLgMain = new SphereGeometry(0.42, 8, 5);
-const discLgTop = new SphereGeometry(0.20, 7, 4);
+const discLgTop = new SphereGeometry(0.2, 7, 4);
 
 export const FlatTopTree = memo(function FlatTopTree({
   size = "md",
@@ -35,7 +41,8 @@ export const FlatTopTree = memo(function FlatTopTree({
   useFrame((state) => {
     if (!ref.current) return;
     const t = state.clock.getElapsedTime();
-    ref.current.rotation.z = Math.sin(t * 0.55 + (props.position?.[0] ?? 0) * 1.8) * 0.01;
+    ref.current.rotation.z =
+      Math.sin(t * 0.55 + (props.position?.[0] ?? 0) * 1.8) * 0.01;
   });
 
   return (
@@ -46,7 +53,11 @@ export const FlatTopTree = memo(function FlatTopTree({
             <meshStandardMaterial color={COLORS.trunk} {...BARK} />
           </mesh>
           <group ref={ref}>
-            <mesh geometry={discSm} position={[0, 0.22, 0]} scale={[1, 0.35, 1]}>
+            <mesh
+              geometry={discSm}
+              position={[0, 0.22, 0]}
+              scale={[1, 0.35, 1]}
+            >
               <meshStandardMaterial color={COLORS.canopy} {...FOLIAGE} />
             </mesh>
           </group>
@@ -58,7 +69,11 @@ export const FlatTopTree = memo(function FlatTopTree({
             <meshStandardMaterial color={COLORS.trunk} {...BARK} />
           </mesh>
           <group ref={ref}>
-            <mesh geometry={discMd} position={[0, 0.34, 0]} scale={[1, 0.35, 1]}>
+            <mesh
+              geometry={discMd}
+              position={[0, 0.34, 0]}
+              scale={[1, 0.35, 1]}
+            >
               <meshStandardMaterial color={COLORS.canopy} {...FOLIAGE} />
             </mesh>
           </group>
@@ -70,10 +85,18 @@ export const FlatTopTree = memo(function FlatTopTree({
             <meshStandardMaterial color={COLORS.trunk} {...BARK} />
           </mesh>
           <group ref={ref}>
-            <mesh geometry={discLgMain} position={[0, 0.34, 0]} scale={[1, 0.30, 1]}>
+            <mesh
+              geometry={discLgMain}
+              position={[0, 0.34, 0]}
+              scale={[1, 0.3, 1]}
+            >
               <meshStandardMaterial color={COLORS.canopy} {...FOLIAGE} />
             </mesh>
-            <mesh geometry={discLgTop} position={[0, 0.46, 0]} scale={[1, 0.30, 1]}>
+            <mesh
+              geometry={discLgTop}
+              position={[0, 0.46, 0]}
+              scale={[1, 0.3, 1]}
+            >
               <meshStandardMaterial color={COLORS.canopyLight} {...FOLIAGE} />
             </mesh>
           </group>

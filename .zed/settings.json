@@ -1,0 +1,29 @@
+{
+  "lsp": {
+    "tsgo": {
+      "settings": {
+        "package_version": "7.0.0-dev.20260407.1",
+      },
+    },
+  },
+  "languages": {
+    "JavaScript": {
+      "language_servers": ["tsgo", "biome"],
+    },
+    "TypeScript": {
+      "language_servers": ["tsgo", "biome"],
+    },
+    "TSX": {
+      "language_servers": ["tsgo", "biome", "tailwindcss-language-server"],
+    },
+    "CSS": {
+      "language_servers": ["tailwindcss-language-server", "biome"],
+    },
+    "JSON": {
+      "language_servers": ["json-language-server", "biome"],
+    },
+    "JSONC": {
+      "language_servers": ["json-language-server", "biome"],
+    },
+  },
+}

@@ -1,30 +1,36 @@
-import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { FrontSide, ShaderMaterial, Vector3 } from "three";
+import { useMemo, useRef } from "react";
+import { FrontSide, type ShaderMaterial, Vector3 } from "three";
 import {
-  BELT_TILE,
-  BELT_SPEED,
-  DEFAULT_BELT_RATE_PER_MINUTE,
-  RAIL_H,
-  BASE_H,
-  BASE_EXTEND,
   ACCENT_Y,
-  GROOVE_DENSITY,
+  ARC_END,
+  ARC_EXT,
+  ARC_START,
+  BASE_EXTEND,
+  BASE_H,
+  BELT_COLORS,
+  BELT_MAT,
+  BELT_SPEED,
+  BELT_TILE,
+  CURVE_ARC_LENGTH,
   CURVE_BELT_INNER,
   CURVE_BELT_OUTER,
   CURVE_FRAME_INNER,
   CURVE_FRAME_OUTER,
-  CURVE_ARC_LENGTH,
-  ARC_START,
-  ARC_END,
-  ARC_EXT,
-  BELT_COLORS,
-  BELT_MAT,
+  DEFAULT_BELT_RATE_PER_MINUTE,
+  GROOVE_DENSITY,
+  RAIL_H,
+  SURFACE_W,
   resolveBeltSpeed,
 } from "./constants";
-import { buildArcStrip, buildArcWall, buildArcCap } from "./geometry";
-import { grooveVert, grooveFrag, GROOVE_RUNNING, GROOVE_STOPPED } from "./shaders";
-import type { BeltSegmentProps, BeltPort } from "./types";
+import { buildArcCap, buildArcStrip, buildArcWall } from "./geometry";
+import {
+  GROOVE_RUNNING,
+  GROOVE_STOPPED,
+  grooveFrag,
+  grooveVert,
+} from "./shaders";
+import type { BeltPort, BeltSegmentProps } from "./types";
 
 const H = BELT_TILE.height;
 
@@ -49,6 +55,7 @@ export function BeltCurve({
   content: _content = "empty",
   ratePerMinute = DEFAULT_BELT_RATE_PER_MINUTE,
   speed,
+  endCap,
   ...props
 }: BeltSegmentProps) {
   const overlayRef = useRef<ShaderMaterial>(null);
@@ -82,13 +89,41 @@ export function BeltCurve({
       innerRailWall: buildArcWall(BI, H, H + RAIL_H, true),
       innerRailInnerWall: buildArcWall(FI, H, H + RAIL_H, false),
       innerRailTop: buildArcStrip(FI, BI, H + RAIL_H, true),
-      innerRailStartCap: buildArcCap(ARC_START + ARC_EXT, FI, BI, H, H + RAIL_H, true),
-      innerRailEndCap: buildArcCap(ARC_END - ARC_EXT, FI, BI, H, H + RAIL_H, false),
+      innerRailStartCap: buildArcCap(
+        ARC_START + ARC_EXT,
+        FI,
+        BI,
+        H,
+        H + RAIL_H,
+        true,
+      ),
+      innerRailEndCap: buildArcCap(
+        ARC_END - ARC_EXT,
+        FI,
+        BI,
+        H,
+        H + RAIL_H,
+        false,
+      ),
       outerRailWall: buildArcWall(BO, H, H + RAIL_H, false),
       outerRailOuterWall: buildArcWall(FO, H, H + RAIL_H, true),
       outerRailTop: buildArcStrip(BO, FO, H + RAIL_H, true),
-      outerRailStartCap: buildArcCap(ARC_START + ARC_EXT, BO, FO, H, H + RAIL_H, true),
-      outerRailEndCap: buildArcCap(ARC_END - ARC_EXT, BO, FO, H, H + RAIL_H, false),
+      outerRailStartCap: buildArcCap(
+        ARC_START + ARC_EXT,
+        BO,
+        FO,
+        H,
+        H + RAIL_H,
+        true,
+      ),
+      outerRailEndCap: buildArcCap(
+        ARC_END - ARC_EXT,
+        BO,
+        FO,
+        H,
+        H + RAIL_H,
+        false,
+      ),
 
       // ── Frame extension walls at base plate radii (visible from outside) ──
       outerFrameWall: buildArcWall(FO + BASE_EXTEND, BASE_H, H, true),
@@ -97,8 +132,18 @@ export function BeltCurve({
       innerFrameTop: buildArcStrip(FI - BASE_EXTEND, FI, H, true),
 
       // ── Base plate ──
-      basePlateTop: buildArcStrip(FI - BASE_EXTEND, FO + BASE_EXTEND, BASE_H, true),
-      basePlateBottom: buildArcStrip(FI - BASE_EXTEND, FO + BASE_EXTEND, 0, false),
+      basePlateTop: buildArcStrip(
+        FI - BASE_EXTEND,
+        FO + BASE_EXTEND,
+        BASE_H,
+        true,
+      ),
+      basePlateBottom: buildArcStrip(
+        FI - BASE_EXTEND,
+        FO + BASE_EXTEND,
+        0,
+        false,
+      ),
       basePlateInner: buildArcWall(FI - BASE_EXTEND, 0, BASE_H, false),
       basePlateOuter: buildArcWall(FO + BASE_EXTEND, 0, BASE_H, true),
       basePlateStartCap: buildArcCap(
@@ -142,7 +187,10 @@ export function BeltCurve({
     }
 
     u.uOpacity.value += (groove.opacity - u.uOpacity.value) * 0.1;
-    u.uColor.value.lerp(_lerpTarget.set(groove.color[0], groove.color[1], groove.color[2]), 0.1);
+    u.uColor.value.lerp(
+      _lerpTarget.set(groove.color[0], groove.color[1], groove.color[2]),
+      0.1,
+    );
   });
 
   return (
@@ -279,6 +327,22 @@ export function BeltCurve({
           }}
         />
       </mesh>
+
+      {/* ── End-cap brackets — terminus where belt meets building ── */}
+      {/* Start cap at west face (-X) */}
+      {(endCap === "start" || endCap === "both") && (
+        <mesh position={[-0.5, H / 2 + 0.01, 0]}>
+          <boxGeometry args={[0.02, H * 0.65, SURFACE_W + 0.02]} />
+          <meshStandardMaterial color={BELT_COLORS.cap} {...BELT_MAT.cap} />
+        </mesh>
+      )}
+      {/* End cap at north face (-Z) */}
+      {(endCap === "end" || endCap === "both") && (
+        <mesh position={[0, H / 2 + 0.01, -0.5]}>
+          <boxGeometry args={[SURFACE_W + 0.02, H * 0.65, 0.02]} />
+          <meshStandardMaterial color={BELT_COLORS.cap} {...BELT_MAT.cap} />
+        </mesh>
+      )}
     </group>
   );
 }

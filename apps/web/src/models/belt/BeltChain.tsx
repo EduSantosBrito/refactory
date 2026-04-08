@@ -1,29 +1,29 @@
-import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
+import { useMemo, useRef } from "react";
 import type { Group } from "three";
+import type { ModelProps } from "../colors";
+import { BeltCurve } from "./BeltCurve";
+import { BeltSegment } from "./BeltSegment";
 import {
-  BELT_TILE,
+  ARC_END,
+  ARC_START,
   BELT_SPEED,
-  DEFAULT_BELT_RATE_PER_MINUTE,
+  BELT_TILE,
+  CURVE_CENTER_R,
   CURVE_PIVOT_X,
   CURVE_PIVOT_Z,
-  CURVE_CENTER_R,
-  ARC_START,
-  ARC_END,
+  DEFAULT_BELT_RATE_PER_MINUTE,
   resolveBeltSpeed,
 } from "./constants";
-import { BeltSegment } from "./BeltSegment";
-import { BeltCurve } from "./BeltCurve";
 import type {
-  BeltPowerState,
   BeltContentState,
+  BeltPowerState,
   BeltSegmentType,
-  ChainSegment,
   ChainItem,
   ChainPath,
   ChainPosition,
+  ChainSegment,
 } from "./types";
-import type { ModelProps } from "../colors";
 
 /* ── Path math ───────────────────────────────────────────── */
 
@@ -31,7 +31,10 @@ import type { ModelProps } from "../colors";
  * Compute local-space position within a single segment at progress t (0..1).
  * Returns position relative to the segment's origin.
  */
-function getSegmentLocalPosition(type: BeltSegmentType, t: number): ChainPosition {
+function getSegmentLocalPosition(
+  type: BeltSegmentType,
+  t: number,
+): ChainPosition {
   if (type === "straight") {
     // Linear from input (-0.5) to output (+0.5) along X
     return {
@@ -89,13 +92,18 @@ function getChainPosition(
   const distance = progress * path.totalLength;
 
   for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i]!;
+    const seg = segments.at(i);
+    if (!seg) {
+      continue;
+    }
     const segStart = path.cumulativeLengths[i] ?? 0;
     const segEnd = segStart + seg.pathLength;
 
     if (distance <= segEnd || i === segments.length - 1) {
       const localT =
-        seg.pathLength > 0 ? Math.max(0, Math.min(1, (distance - segStart) / seg.pathLength)) : 0;
+        seg.pathLength > 0
+          ? Math.max(0, Math.min(1, (distance - segStart) / seg.pathLength))
+          : 0;
       const localPos = getSegmentLocalPosition(seg.type, localT);
       return localToWorld(localPos, seg);
     }
@@ -129,7 +137,14 @@ interface ChainItemRendererProps {
   loop: boolean;
 }
 
-function ChainItemRenderer({ item, segments, path, power, speed, loop }: ChainItemRendererProps) {
+function ChainItemRenderer({
+  item,
+  segments,
+  path,
+  power,
+  speed,
+  loop,
+}: ChainItemRendererProps) {
   const groupRef = useRef<Group>(null);
   const progressRef = useRef(clampProgress(item.progress));
   const heightOffset = item.heightOffset ?? 0.12;
@@ -195,6 +210,8 @@ export interface BeltChainProps extends ModelProps {
   speed?: number;
   /** Wrap items around when they reach the end (demo mode) */
   loop?: boolean;
+  /** Render terminus brackets at the start and/or end of the chain */
+  endCaps?: boolean;
 }
 
 /**
@@ -232,6 +249,7 @@ export function BeltChain({
   ratePerMinute = DEFAULT_BELT_RATE_PER_MINUTE,
   speed,
   loop = false,
+  endCaps = false,
   ...props
 }: BeltChainProps) {
   const path = useMemo(() => computeChainPath(segments), [segments]);
@@ -249,8 +267,16 @@ export function BeltChain({
   return (
     <group {...props}>
       {/* ── Render belt segment geometry ──────────────────── */}
-      {segments.map((seg) => {
+      {segments.map((seg, i) => {
         const SegComponent = seg.type === "straight" ? BeltSegment : BeltCurve;
+        const isFirst = i === 0;
+        const isLast = i === segments.length - 1;
+        let endCap: "start" | "end" | "both" | undefined;
+        if (endCaps) {
+          if (isFirst && isLast) endCap = "both";
+          else if (isFirst) endCap = "start";
+          else if (isLast) endCap = "end";
+        }
         return (
           <SegComponent
             key={seg.key}
@@ -260,6 +286,7 @@ export function BeltChain({
             content={content}
             ratePerMinute={ratePerMinute}
             speed={beltSpeed}
+            endCap={endCap}
           />
         );
       })}
@@ -283,4 +310,4 @@ export function BeltChain({
 
 /* ── Exported utilities ──────────────────────────────────── */
 
-export { getChainPosition, computeChainPath, getSegmentLocalPosition };
+export { computeChainPath, getChainPosition, getSegmentLocalPosition };

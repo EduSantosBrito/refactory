@@ -1,7 +1,7 @@
-import { memo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { SphereGeometry } from "three";
+import { memo, useRef } from "react";
 import type { Group } from "three";
+import { SphereGeometry } from "three";
 import { COLORS, FOLIAGE, type ModelProps, type TreeSize } from "../colors";
 
 /* ── Bush blobs — faceted low-poly ──────────────────────── */
@@ -10,7 +10,11 @@ const blobMd = new SphereGeometry(0.08, 6, 4);
 const blobSm = new SphereGeometry(0.06, 5, 4);
 
 /* ── Per-size layout ────────────────────────────────────── */
-type BlobDef = { geo: SphereGeometry; pos: [number, number, number]; color: string };
+type BlobDef = {
+  geo: SphereGeometry;
+  pos: [number, number, number];
+  color: string;
+};
 
 const layouts: Record<TreeSize, BlobDef[]> = {
   sm: [
@@ -42,14 +46,20 @@ export const Bush = memo(function Bush({
   useFrame((state) => {
     if (!ref.current) return;
     ref.current.rotation.z =
-      Math.sin(state.clock.getElapsedTime() * 0.7 + (props.position?.[0] ?? 0)) * 0.02;
+      Math.sin(
+        state.clock.getElapsedTime() * 0.7 + (props.position?.[0] ?? 0),
+      ) * 0.02;
   });
 
   return (
     <group {...props}>
       <group ref={ref}>
-        {layouts[size].map((b, i) => (
-          <mesh key={i} geometry={b.geo} position={b.pos}>
+        {layouts[size].map((b) => (
+          <mesh
+            key={`bush-${b.geo.type}-${b.pos.join("-")}`}
+            geometry={b.geo}
+            position={b.pos}
+          >
             <meshStandardMaterial color={b.color} {...FOLIAGE} />
           </mesh>
         ))}

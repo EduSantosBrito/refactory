@@ -1,6 +1,6 @@
-import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { AtomRef } from "effect/unstable/reactivity";
+import { useRef } from "react";
 import type { Group } from "three";
 import { MAT, type ModelProps } from "./colors";
 
@@ -50,7 +50,7 @@ export function Antenna({ speed = 0.5, ...props }: AntennaProps) {
         </mesh>
 
         {/* Dish assembly — tilted, concave side faces up */}
-        <group position={[0, 0.20, 0]} rotation={[0.5, 0, 0]}>
+        <group position={[0, 0.2, 0]} rotation={[0.5, 0, 0]}>
           {/* Dish (flipped cone — wide rim up) */}
           <mesh rotation={[Math.PI, 0, 0]}>
             <coneGeometry args={[0.18, 0.06, 12]} />
@@ -64,7 +64,11 @@ export function Antenna({ speed = 0.5, ...props }: AntennaProps) {
           {/* Feed arm */}
           <mesh position={[0, 0.09, 0]}>
             <cylinderGeometry args={[0.005, 0.005, 0.12, 4]} />
-            <meshStandardMaterial color={HULL_LIGHT} {...MAT} roughness={0.45} />
+            <meshStandardMaterial
+              color={HULL_LIGHT}
+              {...MAT}
+              roughness={0.45}
+            />
           </mesh>
           {/* Feed tip */}
           <mesh position={[0, 0.15, 0]}>

@@ -1,5 +1,6 @@
 import type { ActorContext } from "@refactory/contracts/auth";
 import { Effect, Layer, Option, Schema, ServiceMap } from "effect";
+import { PersistenceDecodeError } from "./backend-errors.ts";
 import { SqliteDatabase, StorageError } from "./sqlite.ts";
 
 export const Profile = Schema.Struct({
@@ -18,31 +19,27 @@ type ProfileRow = {
   readonly updated_at: string;
 };
 
-const decodeProfile = Schema.decodeUnknownSync(Profile);
+const decodeProfile = Schema.decodeUnknownEffect(Profile);
 
-const mapProfileRow = (row: ProfileRow): Profile =>
+const mapProfileRow = (row: ProfileRow) =>
   decodeProfile({
     createdAt: row.created_at,
     displayName: row.display_name,
     publicKey: row.public_key,
     updatedAt: row.updated_at,
-  });
+  }).pipe(
+    Effect.mapError(
+      (cause) => new PersistenceDecodeError({ cause, entity: "profile" }),
+    ),
+  );
 
-export class ProfileRepository extends ServiceMap.Service<
-  ProfileRepository,
+const decodeStoredProfile = (row: ProfileRow) =>
+  mapProfileRow(row).pipe(Effect.map((profile) => Option.some(profile)));
+
+export class ProfileRepository extends ServiceMap.Service<ProfileRepository>()(
+  "refactory/ProfileRepository",
   {
-    readonly getProfile: (
-      publicKey: string,
-    ) => Effect.Effect<Option.Option<Profile>, StorageError, never>;
-    readonly upsertProfile: (
-      actor: ActorContext,
-      now: string,
-    ) => Effect.Effect<void, StorageError, never>;
-  }
->()("refactory/ProfileRepository") {
-  static readonly Live = Layer.effect(
-    ProfileRepository,
-    Effect.gen(function* () {
+    make: Effect.gen(function* () {
       const sqlite = yield* SqliteDatabase;
       const { database } = sqlite;
 
@@ -56,13 +53,20 @@ export class ProfileRepository extends ServiceMap.Service<
                  WHERE public_key = ?1`,
               )
               .get(publicKey),
-          catch: (cause) => new StorageError({ cause, operation: "profiles.getProfile" }),
+          catch: (cause) =>
+            new StorageError({ cause, operation: "profiles.getProfile" }),
         });
 
-        return row === null ? Option.none() : Option.some(mapProfileRow(row));
+        return yield* Option.match(Option.fromNullishOr(row), {
+          onNone: () => Effect.succeed(Option.none()),
+          onSome: decodeStoredProfile,
+        });
       });
 
-      const upsertProfile = Effect.fnUntraced(function* (actor: ActorContext, now: string) {
+      const upsertProfile = Effect.fnUntraced(function* (
+        actor: ActorContext,
+        now: string,
+      ) {
         yield* Effect.try({
           try: () => {
             database
@@ -75,7 +79,8 @@ export class ProfileRepository extends ServiceMap.Service<
               )
               .run(actor.publicKey, actor.displayName, now, now);
           },
-          catch: (cause) => new StorageError({ cause, operation: "profiles.upsertProfile" }),
+          catch: (cause) =>
+            new StorageError({ cause, operation: "profiles.upsertProfile" }),
         });
       });
 
@@ -84,5 +89,10 @@ export class ProfileRepository extends ServiceMap.Service<
         upsertProfile,
       };
     }),
+  },
+) {
+  static readonly Live = Layer.effect(
+    ProfileRepository,
+    ProfileRepository.make,
   );
 }

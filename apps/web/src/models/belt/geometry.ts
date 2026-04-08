@@ -1,11 +1,11 @@
 import { BufferGeometry, Float32BufferAttribute } from "three";
 import {
-  CURVE_SEGMENTS,
-  CURVE_PIVOT_X,
-  CURVE_PIVOT_Z,
-  ARC_START,
   ARC_END,
   ARC_EXT,
+  ARC_START,
+  CURVE_PIVOT_X,
+  CURVE_PIVOT_Z,
+  CURVE_SEGMENTS,
 } from "./constants";
 
 /* ── Helpers ─────────────────────────────────────────────── */

@@ -9,6 +9,8 @@ const StoredActorMaterial = Schema.Struct({
   publicKeyRaw: Schema.String,
   version: Schema.Literal(1),
 });
+const StoredActorMaterialFromJsonString =
+  Schema.fromJsonString(StoredActorMaterial);
 
 type StoredActorMaterial = Schema.Schema.Type<typeof StoredActorMaterial>;
 
@@ -33,10 +35,20 @@ export class ActorDecodeError extends Data.TaggedError("ActorDecodeError")<{
   readonly operation: string;
 }> {}
 
-const decodeStoredActorMaterial = Schema.decodeUnknownSync(StoredActorMaterial);
+const decodeStoredActorMaterial = Schema.decodeUnknownSync(
+  StoredActorMaterialFromJsonString,
+);
+const encodeStoredActorMaterial = Schema.encodeSync(
+  StoredActorMaterialFromJsonString,
+);
 
-const isCryptoKeyPair = (value: CryptoKeyPair | CryptoKey): value is CryptoKeyPair =>
-  typeof value === "object" && value !== null && "publicKey" in value && "privateKey" in value;
+const isCryptoKeyPair = (
+  value: CryptoKeyPair | CryptoKey,
+): value is CryptoKeyPair =>
+  typeof value === "object" &&
+  value !== null &&
+  "publicKey" in value &&
+  "privateKey" in value;
 
 const encodeBase64Url = (bytes: Uint8Array) => {
   let binary = "";
@@ -45,7 +57,10 @@ const encodeBase64Url = (bytes: Uint8Array) => {
     binary += String.fromCharCode(byte);
   }
 
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replaceAll("=", "");
 };
 
 const normalizeBase64Url = (value: string) => {
@@ -81,54 +96,73 @@ const decodeBase64Url = (value: string) => {
   }
 };
 
-const storageGet = Effect.fnUntraced(function*(storageKey: string) {
+const storageGet = Effect.fnUntraced(function* (storageKey: string) {
   return yield* Effect.try({
     try: () => window.localStorage.getItem(storageKey),
-    catch: (cause) => new ActorStorageError({ cause, operation: "actor.storage.get" }),
+    catch: (cause) =>
+      new ActorStorageError({ cause, operation: "actor.storage.get" }),
   });
 });
 
-const storageSet = Effect.fnUntraced(function*(storageKey: string, value: string) {
+const storageSet = Effect.fnUntraced(function* (
+  storageKey: string,
+  value: string,
+) {
   yield* Effect.try({
     try: () => {
       window.localStorage.setItem(storageKey, value);
     },
-    catch: (cause) => new ActorStorageError({ cause, operation: "actor.storage.set" }),
+    catch: (cause) =>
+      new ActorStorageError({ cause, operation: "actor.storage.set" }),
   });
 });
 
-const parseStoredActorMaterial = Effect.fnUntraced(function*(raw: string) {
-  const parsed = yield* Effect.try({
-    try: () => {
-      const value: unknown = JSON.parse(raw);
-      return value;
-    },
-    catch: (cause) => new ActorDecodeError({ cause, operation: "actor.storage.parse" }),
-  });
-
+const parseStoredActorMaterial = Effect.fnUntraced(function* (raw: string) {
   return yield* Effect.try({
-    try: () => decodeStoredActorMaterial(parsed),
-    catch: (cause) => new ActorDecodeError({ cause, operation: "actor.storage.decode" }),
+    try: () => decodeStoredActorMaterial(raw),
+    catch: (cause) =>
+      new ActorDecodeError({ cause, operation: "actor.storage.decode" }),
   });
 });
 
-const importActorKeyPair = Effect.fnUntraced(function*(stored: StoredActorMaterial) {
+const importActorKeyPair = Effect.fnUntraced(function* (
+  stored: StoredActorMaterial,
+) {
   const publicKeyBytes = decodeBase64Url(stored.publicKeyRaw);
   const privateKeyBytes = decodeBase64Url(stored.privateKeyPkcs8);
 
   if (publicKeyBytes === undefined || privateKeyBytes === undefined) {
-    return yield* Effect.fail(
-      new ActorDecodeError({ cause: stored, operation: "actor.storage.base64url" }),
-    );
+    return yield* new ActorDecodeError({
+      cause: stored,
+      operation: "actor.storage.base64url",
+    });
   }
 
   const publicKey = yield* Effect.tryPromise({
-    try: () => crypto.subtle.importKey("raw", publicKeyBytes, signingAlgorithm, true, ["verify"]),
-    catch: (cause) => new ActorCryptoError({ cause, operation: "actor.crypto.importPublicKey" }),
+    try: () =>
+      crypto.subtle.importKey("raw", publicKeyBytes, signingAlgorithm, true, [
+        "verify",
+      ]),
+    catch: (cause) =>
+      new ActorCryptoError({
+        cause,
+        operation: "actor.crypto.importPublicKey",
+      }),
   });
   const privateKey = yield* Effect.tryPromise({
-    try: () => crypto.subtle.importKey("pkcs8", privateKeyBytes, signingAlgorithm, true, ["sign"]),
-    catch: (cause) => new ActorCryptoError({ cause, operation: "actor.crypto.importPrivateKey" }),
+    try: () =>
+      crypto.subtle.importKey(
+        "pkcs8",
+        privateKeyBytes,
+        signingAlgorithm,
+        true,
+        ["sign"],
+      ),
+    catch: (cause) =>
+      new ActorCryptoError({
+        cause,
+        operation: "actor.crypto.importPrivateKey",
+      }),
   });
 
   return {
@@ -138,25 +172,41 @@ const importActorKeyPair = Effect.fnUntraced(function*(stored: StoredActorMateri
   } satisfies ActorCredentials;
 });
 
-const generateActorCredentials = Effect.fnUntraced(function*(displayName: string) {
+const generateActorCredentials = Effect.fnUntraced(function* (
+  displayName: string,
+) {
   const generated = yield* Effect.tryPromise({
-    try: () => crypto.subtle.generateKey(signingAlgorithm, true, ["sign", "verify"]),
-    catch: (cause) => new ActorCryptoError({ cause, operation: "actor.crypto.generateKeyPair" }),
+    try: () =>
+      crypto.subtle.generateKey(signingAlgorithm, true, ["sign", "verify"]),
+    catch: (cause) =>
+      new ActorCryptoError({
+        cause,
+        operation: "actor.crypto.generateKeyPair",
+      }),
   });
 
   if (!isCryptoKeyPair(generated)) {
-    return yield* Effect.fail(
-      new ActorCryptoError({ cause: generated, operation: "actor.crypto.invalidKeyPair" }),
-    );
+    return yield* new ActorCryptoError({
+      cause: generated,
+      operation: "actor.crypto.invalidKeyPair",
+    });
   }
 
   const exportedPublicKey = yield* Effect.tryPromise({
     try: () => crypto.subtle.exportKey("raw", generated.publicKey),
-    catch: (cause) => new ActorCryptoError({ cause, operation: "actor.crypto.exportPublicKey" }),
+    catch: (cause) =>
+      new ActorCryptoError({
+        cause,
+        operation: "actor.crypto.exportPublicKey",
+      }),
   });
   const exportedPrivateKey = yield* Effect.tryPromise({
     try: () => crypto.subtle.exportKey("pkcs8", generated.privateKey),
-    catch: (cause) => new ActorCryptoError({ cause, operation: "actor.crypto.exportPrivateKey" }),
+    catch: (cause) =>
+      new ActorCryptoError({
+        cause,
+        operation: "actor.crypto.exportPrivateKey",
+      }),
   });
 
   const stored: StoredActorMaterial = {
@@ -176,7 +226,10 @@ const generateActorCredentials = Effect.fnUntraced(function*(displayName: string
   };
 });
 
-const updateStoredDisplayName = (stored: StoredActorMaterial, displayName: string): StoredActorMaterial => ({
+const updateStoredDisplayName = (
+  stored: StoredActorMaterial,
+  displayName: string,
+): StoredActorMaterial => ({
   ...stored,
   displayName,
 });
@@ -192,28 +245,61 @@ const updateStoredDisplayName = (stored: StoredActorMaterial, displayName: strin
  * @param options - The display name to associate with the local actor and an optional storage key override.
  * @returns An `Effect` that yields the usable actor credentials.
  */
-export const getOrCreateActorCredentials = Effect.fnUntraced(function*(options: {
-  readonly displayName: string;
-  readonly storageKey?: string;
-}) {
-  const storageKey = options.storageKey ?? defaultActorStorageKey;
-  const existing = yield* storageGet(storageKey);
+export const getOrCreateActorCredentials = Effect.fnUntraced(
+  function* (options: {
+    readonly displayName: string;
+    readonly storageKey?: string;
+  }) {
+    const storageKey = options.storageKey ?? defaultActorStorageKey;
+    const existing = yield* storageGet(storageKey);
 
-  if (existing === null) {
-    const generated = yield* generateActorCredentials(options.displayName);
-    yield* storageSet(storageKey, JSON.stringify(generated.stored));
-    return generated.credentials;
-  }
+    if (existing === null) {
+      const generated = yield* generateActorCredentials(options.displayName);
+      yield* storageSet(
+        storageKey,
+        encodeStoredActorMaterial(generated.stored),
+      );
+      return generated.credentials;
+    }
 
-  const stored = yield* parseStoredActorMaterial(existing);
-  const normalized = stored.displayName === options.displayName ? stored : updateStoredDisplayName(stored, options.displayName);
+    const stored = yield* parseStoredActorMaterial(existing);
+    const normalized =
+      stored.displayName === options.displayName
+        ? stored
+        : updateStoredDisplayName(stored, options.displayName);
 
-  if (normalized !== stored) {
-    yield* storageSet(storageKey, JSON.stringify(normalized));
-  }
+    if (normalized !== stored) {
+      yield* storageSet(storageKey, encodeStoredActorMaterial(normalized));
+    }
 
-  return yield* importActorKeyPair(normalized);
-});
+    return yield* importActorKeyPair(normalized);
+  },
+);
+
+/**
+ * Read the persisted actor display name, if the browser already has actor material.
+ *
+ * @remarks
+ * The title screen uses this to prefill username forms without forcing UI code to understand the actor storage format.
+ *
+ * @param options - Optional storage key override.
+ * @returns An `Effect` that yields the stored display name or `undefined` when no actor exists yet.
+ */
+export const readStoredActorDisplayName = Effect.fnUntraced(
+  function* (options?: {
+    readonly storageKey?: string;
+  }) {
+    const storageKey = options?.storageKey ?? defaultActorStorageKey;
+    const existing = yield* storageGet(storageKey);
+
+    if (existing === null) {
+      return undefined;
+    }
+
+    const stored = yield* parseStoredActorMaterial(existing);
+    return stored.displayName;
+  },
+);
 
 /**
  * Produce the signed actor headers expected by the backend auth middleware.
@@ -226,16 +312,27 @@ export const getOrCreateActorCredentials = Effect.fnUntraced(function*(options: 
  * @param options - The actor credentials plus the request method and canonical path/query string to sign.
  * @returns An `Effect` that yields the signed actor headers.
  */
-export const makeSignedActorHeaders = Effect.fnUntraced(function*(options: {
+export const makeSignedActorHeaders = Effect.fnUntraced(function* (options: {
   readonly actor: ActorCredentials;
   readonly method: string;
   readonly pathAndQuery: string;
 }) {
   const timestamp = String(Date.now());
-  const payload = [options.method.toUpperCase(), options.pathAndQuery, timestamp, options.actor.displayName].join("\n");
+  const payload = [
+    options.method.toUpperCase(),
+    options.pathAndQuery,
+    timestamp,
+    options.actor.displayName,
+  ].join("\n");
   const signature = yield* Effect.tryPromise({
-    try: () => crypto.subtle.sign(signingAlgorithm, options.actor.keyPair.privateKey, new TextEncoder().encode(payload)),
-    catch: (cause) => new ActorCryptoError({ cause, operation: "actor.crypto.sign" }),
+    try: () =>
+      crypto.subtle.sign(
+        signingAlgorithm,
+        options.actor.keyPair.privateKey,
+        new TextEncoder().encode(payload),
+      ),
+    catch: (cause) =>
+      new ActorCryptoError({ cause, operation: "actor.crypto.sign" }),
   });
 
   return {

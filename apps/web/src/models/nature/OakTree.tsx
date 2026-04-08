@@ -1,8 +1,14 @@
-import { memo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { CylinderGeometry, SphereGeometry } from "three";
+import { memo, useRef } from "react";
 import type { Group } from "three";
-import { COLORS, FOLIAGE, BARK, type ModelProps, type TreeSize } from "../colors";
+import { CylinderGeometry, SphereGeometry } from "three";
+import {
+  BARK,
+  COLORS,
+  FOLIAGE,
+  type ModelProps,
+  type TreeSize,
+} from "../colors";
 
 /**
  * Oak — round canopy, growth-based.
@@ -17,7 +23,7 @@ import { COLORS, FOLIAGE, BARK, type ModelProps, type TreeSize } from "../colors
  *     Width dominates height (scale=[1.2, 0.72, 1.2]).
  */
 
-const trunkSm = new CylinderGeometry(0.01, 0.022, 0.10, 6);
+const trunkSm = new CylinderGeometry(0.01, 0.022, 0.1, 6);
 const trunkMd = new CylinderGeometry(0.028, 0.07, 0.24, 6);
 const trunkLg = new CylinderGeometry(0.065, 0.18, 0.28, 6);
 
@@ -36,7 +42,8 @@ export const OakTree = memo(function OakTree({
   useFrame((state) => {
     if (!ref.current) return;
     const t = state.clock.getElapsedTime();
-    ref.current.rotation.z = Math.sin(t * 0.7 + (props.position?.[0] ?? 0) * 2) * 0.012;
+    ref.current.rotation.z =
+      Math.sin(t * 0.7 + (props.position?.[0] ?? 0) * 2) * 0.012;
   });
 
   return (
@@ -47,7 +54,7 @@ export const OakTree = memo(function OakTree({
             <meshStandardMaterial color={COLORS.trunk} {...BARK} />
           </mesh>
           <group ref={ref}>
-            <mesh geometry={canopySm} position={[0, 0.20, 0]}>
+            <mesh geometry={canopySm} position={[0, 0.2, 0]}>
               <meshStandardMaterial color={COLORS.canopy} {...FOLIAGE} />
             </mesh>
           </group>
@@ -59,7 +66,7 @@ export const OakTree = memo(function OakTree({
             <meshStandardMaterial color={COLORS.trunk} {...BARK} />
           </mesh>
           <group ref={ref}>
-            <mesh geometry={canopyMd} position={[0, 0.40, 0]}>
+            <mesh geometry={canopyMd} position={[0, 0.4, 0]}>
               <meshStandardMaterial color={COLORS.canopy} {...FOLIAGE} />
             </mesh>
             <mesh geometry={crownMd} position={[0.02, 0.62, 0.01]}>
@@ -74,7 +81,11 @@ export const OakTree = memo(function OakTree({
             <meshStandardMaterial color={COLORS.trunk} {...BARK} />
           </mesh>
           <group ref={ref}>
-            <mesh geometry={canopyLg} position={[0, 0.50, 0]} scale={[1.2, 0.72, 1.2]}>
+            <mesh
+              geometry={canopyLg}
+              position={[0, 0.5, 0]}
+              scale={[1.2, 0.72, 1.2]}
+            >
               <meshStandardMaterial color={COLORS.canopy} {...FOLIAGE} />
             </mesh>
             <mesh geometry={crownLg} position={[0.03, 0.76, 0.02]}>

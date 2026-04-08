@@ -1,16 +1,4 @@
 import type { ActorContext } from "@refactory/contracts/auth";
-import {
-  CreateWorldRequest,
-  InvalidWorldCursorError,
-  InvalidWorldNameError,
-  IdempotencyConflictError,
-  ListWorldsResponse,
-  WorldNotFoundError,
-  WorldAccessDeniedError,
-  WorldNameTakenError,
-  WorldSnapshot,
-  WorldSpec,
-} from "@refactory/contracts/worlds";
 import type {
   AssetId,
   WorldDetail,
@@ -20,8 +8,20 @@ import type {
   WorldSummary,
   WorldVisibility,
 } from "@refactory/contracts/worlds";
-import { Effect, Layer, Option, Schema, ServiceMap } from "effect";
+import {
+  type CreateWorldRequest,
+  IdempotencyConflictError,
+  InvalidWorldCursorError,
+  InvalidWorldNameError,
+  WorldAccessDeniedError,
+  WorldNameTakenError,
+  WorldNotFoundError,
+  WorldSnapshot,
+  WorldSpec,
+} from "@refactory/contracts/worlds";
+import { Effect, Layer, Match, Option, Schema, ServiceMap } from "effect";
 import { AppConfig } from "./app-config.ts";
+import { PersistenceDecodeError } from "./backend-errors.ts";
 import { ProfileRepository } from "./profiles.ts";
 import { SqliteDatabase, StorageError } from "./sqlite.ts";
 
@@ -96,103 +96,178 @@ type CreateWorldRecord = {
   readonly worldName: string;
 };
 
+const ListingCursorSchema = Schema.Struct({
+  updatedAt: Schema.String,
+  worldId: Schema.String,
+});
+
 const defaultListLimit = 20;
 const maxListLimit = 100;
 
-const assets: ReadonlyArray<{ readonly assetId: AssetId; readonly designation: string }> = [
+const assets: ReadonlyArray<{
+  readonly assetId: AssetId;
+  readonly designation: string;
+}> = [
   { assetId: "BAR-001", designation: "Apis Worker Unit" },
   { assetId: "FLA-002", designation: "Phoenicopterus Scout Unit" },
   { assetId: "FRO-003", designation: "Rana Amphibious Unit" },
   { assetId: "RPA-004", designation: "Ailurus Arboreal Unit" },
 ];
 
-const decodeWorldSpec = Schema.decodeUnknownSync(WorldSpec);
-const decodeWorldSnapshot = Schema.decodeUnknownSync(WorldSnapshot);
+const decodeWorldSpecJson = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(WorldSpec),
+);
+const decodeWorldSnapshotJson = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(WorldSnapshot),
+);
+const encodeWorldSpecJson = Schema.encodeEffect(
+  Schema.fromJsonString(WorldSpec),
+);
+const encodeWorldSnapshotJson = Schema.encodeEffect(
+  Schema.fromJsonString(WorldSnapshot),
+);
 
 const normalizeSearchText = (value: string) => value.trim().toLowerCase();
 
+const toSearchPattern = (search: string | undefined) =>
+  Match.value(search).pipe(
+    Match.when(Match.undefined, () => null),
+    Match.when("", () => null),
+    Match.orElse((value) => `%${value}%`),
+  );
+
 const clampListLimit = (value: number | undefined) => {
-  if (value === undefined || !Number.isFinite(value)) {
-    return defaultListLimit;
-  }
-
-  const bounded = Math.floor(value);
-
-  if (bounded < 1) {
-    return 1;
-  }
-
-  return bounded > maxListLimit ? maxListLimit : bounded;
+  return Match.value(value).pipe(
+    Match.when(Match.undefined, () => defaultListLimit),
+    Match.when(
+      (limit) => !Number.isFinite(limit),
+      () => defaultListLimit,
+    ),
+    Match.orElse((limit) =>
+      Math.max(1, Math.min(maxListLimit, Math.floor(limit))),
+    ),
+  );
 };
 
 const encodeCursor = (cursor: ListingCursor) => btoa(JSON.stringify(cursor));
 
-const decodeCursor = (value: string) => {
-  try {
-    const parsed: unknown = JSON.parse(atob(value));
+const decodeCursor = (value: string) =>
+  Option.getOrUndefined(
+    Schema.decodeUnknownOption(Schema.fromJsonString(ListingCursorSchema))(
+      value,
+    ),
+  );
 
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "updatedAt" in parsed &&
-      typeof parsed.updatedAt === "string" &&
-      "worldId" in parsed &&
-      typeof parsed.worldId === "string"
-    ) {
-      return {
-        updatedAt: parsed.updatedAt,
-        worldId: parsed.worldId,
-      };
-    }
+const requireNormalizedWorldListQuery = (query: WorldListQuery) =>
+  Option.match(normalizeWorldListQuery(query), {
+    onNone: () =>
+      Effect.fail(
+        new InvalidWorldCursorError({
+          message: "World list cursor is invalid",
+        }),
+      ),
+    onSome: Effect.succeed,
+  });
 
-    return undefined;
-  } catch {
-    return undefined;
-  }
-};
+const failIfDefined = (
+  error: InvalidWorldNameError | WorldAccessDeniedError | undefined,
+) =>
+  Match.value(error).pipe(
+    Match.when(Match.undefined, () => Effect.succeed(undefined)),
+    Match.orElse((definedError) => Effect.fail(definedError)),
+  );
 
 const normalizeWorldListQuery = (query: WorldListQuery) => {
-  const cursor = query.cursor === undefined ? undefined : decodeCursor(query.cursor);
+  let cursor: ListingCursor | undefined;
 
-  if (query.cursor !== undefined && cursor === undefined) {
-    return Option.none<NormalizedWorldListQuery>();
+  switch (query.cursor) {
+    case undefined:
+      cursor = undefined;
+      break;
+    default:
+      cursor = decodeCursor(query.cursor);
+      break;
   }
 
-  return Option.some({
-    cursor,
-    limit: clampListLimit(query.limit),
-    normalizedSearch: query.search === undefined ? undefined : normalizeSearchText(query.search),
-  });
-};
+  let normalizedSearch: string | undefined;
 
-const parseJsonColumn = <A>(json: string | null, decode: (value: unknown) => A) => {
-  if (json === null) {
-    return undefined;
+  switch (query.search) {
+    case undefined:
+      normalizedSearch = undefined;
+      break;
+    default:
+      normalizedSearch = normalizeSearchText(query.search);
+      break;
   }
 
-  return decode(JSON.parse(json));
+  return Match.value(query.cursor !== undefined && cursor === undefined).pipe(
+    Match.when(true, () => Option.none<NormalizedWorldListQuery>()),
+    Match.orElse(() =>
+      Option.some({
+        cursor,
+        limit: clampListLimit(query.limit),
+        normalizedSearch,
+      }),
+    ),
+  );
 };
 
-const mapWorldRow = (row: WorldRow): StoredWorld => ({
-  createdAt: row.created_at,
-  failureReason: row.failure_reason ?? undefined,
-  hostNameSnapshot: row.host_name_snapshot,
-  hostPublicKey: row.host_public_key,
-  idempotencyKey: row.idempotency_key,
-  mapId: row.map_id,
-  mode: row.mode,
-  normalizedHostNameSnapshot: row.normalized_host_name_snapshot,
-  normalizedName: row.normalized_name,
-  rulesetVersion: row.ruleset_version,
-  snapshot: parseJsonColumn(row.snapshot_json, decodeWorldSnapshot),
-  spec: parseJsonColumn(row.spec_json, decodeWorldSpec),
-  status: row.status,
-  updatedAt: row.updated_at,
-  visibility: row.visibility,
-  worldId: row.world_id,
-  worldName: row.world_name,
-  worldSchemaVersion: row.world_schema_version,
-});
+const parseWorldSnapshotColumn = (json: string | null) => {
+  switch (json) {
+    case null:
+      return Effect.succeed(void 0);
+    default:
+      return decodeWorldSnapshotJson(json).pipe(
+        Effect.mapError(
+          (cause) =>
+            new PersistenceDecodeError({ cause, entity: "world_snapshot" }),
+        ),
+      );
+  }
+};
+
+const parseWorldSpecColumn = (json: string | null) => {
+  switch (json) {
+    case null:
+      return Effect.succeed(void 0);
+    default:
+      return decodeWorldSpecJson(json).pipe(
+        Effect.mapError(
+          (cause) =>
+            new PersistenceDecodeError({ cause, entity: "world_spec" }),
+        ),
+      );
+  }
+};
+
+const mapWorldRow = (row: WorldRow) =>
+  Effect.all({
+    snapshot: parseWorldSnapshotColumn(row.snapshot_json),
+    spec: parseWorldSpecColumn(row.spec_json),
+  }).pipe(
+    Effect.map(
+      ({ snapshot, spec }): StoredWorld => ({
+        createdAt: row.created_at,
+        failureReason: row.failure_reason ?? undefined,
+        hostNameSnapshot: row.host_name_snapshot,
+        hostPublicKey: row.host_public_key,
+        idempotencyKey: row.idempotency_key,
+        mapId: row.map_id,
+        mode: row.mode,
+        normalizedHostNameSnapshot: row.normalized_host_name_snapshot,
+        normalizedName: row.normalized_name,
+        rulesetVersion: row.ruleset_version,
+        snapshot,
+        spec,
+        status: row.status,
+        updatedAt: row.updated_at,
+        visibility: row.visibility,
+        worldId: row.world_id,
+        worldName: row.world_name,
+        worldSchemaVersion: row.world_schema_version,
+      }),
+    ),
+  );
 
 const toWorldSummary = (world: StoredWorld): WorldSummary => ({
   createdAt: world.createdAt,
@@ -220,31 +295,48 @@ const toWorldDetail = (world: StoredWorld): WorldDetail => ({
   worldStatus: world.status,
 });
 
-const buildRoster = (mode: WorldMode, hostAssetId: AssetId, hostPublicKey: string) =>
-  assets.map((asset) =>
-    asset.assetId === hostAssetId
-      ? {
-          assetId: asset.assetId,
-          designation: asset.designation,
-          reservedByProfileId: hostPublicKey,
-          state: "reserved" as const,
-        }
-      : {
-          assetId: asset.assetId,
-          designation: asset.designation,
-          reservedByProfileId: undefined,
-          state: mode === "multiplayer" ? ("open" as const) : ("closed" as const),
-        },
+const buildRoster = (
+  mode: WorldMode,
+  hostAssetId: AssetId,
+  hostPublicKey: string,
+) => {
+  const openState = Match.value(mode).pipe(
+    Match.when("multiplayer", () => "open" as const),
+    Match.orElse(() => "closed" as const),
   );
 
-const soloStarterResources: ReadonlyArray<{ readonly itemId: string; readonly quantity: number }> = [
+  return assets.map((asset) =>
+    Match.value(asset.assetId === hostAssetId).pipe(
+      Match.when(true, () => ({
+        assetId: asset.assetId,
+        designation: asset.designation,
+        reservedByProfileId: hostPublicKey,
+        state: "reserved" as const,
+      })),
+      Match.orElse(() => ({
+        assetId: asset.assetId,
+        designation: asset.designation,
+        reservedByProfileId: undefined,
+        state: openState,
+      })),
+    ),
+  );
+};
+
+const soloStarterResources: ReadonlyArray<{
+  readonly itemId: string;
+  readonly quantity: number;
+}> = [
   { itemId: "burner_v1", quantity: 1 },
   { itemId: "belt_v1", quantity: 8 },
   { itemId: "miner_v1", quantity: 1 },
   { itemId: "smelter_v1", quantity: 1 },
 ];
 
-const multiplayerStarterResources: ReadonlyArray<{ readonly itemId: string; readonly quantity: number }> = [
+const multiplayerStarterResources: ReadonlyArray<{
+  readonly itemId: string;
+  readonly quantity: number;
+}> = [
   { itemId: "burner_v1", quantity: 1 },
   { itemId: "belt_v1", quantity: 12 },
   { itemId: "miner_v1", quantity: 1 },
@@ -264,102 +356,137 @@ const buildStarterBox = () => ({
   state: "placed" as const,
 });
 
-const buildWorldSnapshot = (mode: WorldMode, hostAssetId: AssetId, hostPublicKey: string): WorldSnapshot => ({
-  bossChat: {
-    currentPhraseIndex: 0,
-    introMessageId: mode === "solo" ? "solo-intro" : "multiplayer-intro",
-    skipVotes: [],
-  },
-  onboarding: {
-    starterBox: mode === "multiplayer" ? buildStarterBox() : undefined,
-    starterKit: mode === "solo" ? [...soloStarterResources] : [],
-  },
-  progression: {
-    activeTier: 0,
-    deliveryQuota: [{ delivered: 0, itemId: "iron_ingot", required: 60 }],
-    phase: "tutorial",
-    rocketStatus: "docked",
-  },
-  roster: buildRoster(mode, hostAssetId, hostPublicKey),
-  snapshotVersion: 1,
-  storage: {
-    modularStorage: {
-      acceptedItemIds: ["iron_ingot"],
-      inputPortCount: 4,
-      storedItems: [],
-    },
-  },
-  tutorial: {
-    completedObjectiveIds: [],
-    currentObjectiveId: mode === "solo" ? "place-miner" : "gather-wood",
-    phase: "bootstrap",
-    variant: mode,
-  },
-});
+const buildWorldSnapshot = (
+  mode: WorldMode,
+  hostAssetId: AssetId,
+  hostPublicKey: string,
+): WorldSnapshot => {
+  let introMessageId: "solo-intro" | "multiplayer-intro";
+  let starterBox: ReturnType<typeof buildStarterBox> | undefined;
+  let starterKit: ReadonlyArray<{
+    readonly itemId: string;
+    readonly quantity: number;
+  }>;
+  let currentObjectiveId: "place-miner" | "gather-wood";
 
-const isSameCreateIntent = (world: StoredWorld, record: CreateWorldRecord) =>
+  switch (mode) {
+    case "solo":
+      introMessageId = "solo-intro";
+      starterBox = undefined;
+      starterKit = [...soloStarterResources];
+      currentObjectiveId = "place-miner";
+      break;
+    default:
+      introMessageId = "multiplayer-intro";
+      starterBox = buildStarterBox();
+      starterKit = [];
+      currentObjectiveId = "gather-wood";
+      break;
+  }
+
+  return {
+    bossChat: {
+      currentPhraseIndex: 0,
+      introMessageId,
+      skipVotes: [],
+    },
+    onboarding: {
+      starterBox,
+      starterKit,
+    },
+    progression: {
+      activeTier: 0,
+      deliveryQuota: [{ delivered: 0, itemId: "iron_ingot", required: 60 }],
+      phase: "tutorial",
+      rocketStatus: "docked",
+    },
+    roster: buildRoster(mode, hostAssetId, hostPublicKey),
+    snapshotVersion: 1,
+    storage: {
+      modularStorage: {
+        acceptedItemIds: ["iron_ingot"],
+        inputPortCount: 4,
+        storedItems: [],
+      },
+    },
+    tutorial: {
+      completedObjectiveIds: [],
+      currentObjectiveId,
+      phase: "bootstrap",
+      variant: mode,
+    },
+  };
+};
+
+const isSameCreateIntent = (
+  world: {
+    readonly hostPublicKey: string;
+    readonly mode: WorldMode;
+    readonly normalizedName: string;
+    readonly visibility: WorldVisibility;
+  },
+  record: CreateWorldRecord,
+) =>
   world.mode === record.spec.mode &&
   world.normalizedName === record.normalizedName &&
   world.visibility === record.spec.visibility &&
   world.hostPublicKey === record.actor.publicKey;
 
-const isRecoverableCreation = (world: StoredWorld) =>
-  world.status !== "ready" || world.snapshot === undefined || world.spec === undefined;
+const isRecoverableCreation = (world: {
+  readonly snapshotJson: string | null;
+  readonly specJson: string | null;
+  readonly status: WorldStatus;
+}) =>
+  world.status !== "ready" ||
+  world.snapshotJson === null ||
+  world.specJson === null;
 
-const finalizePage = (rows: ReadonlyArray<WorldRow>, limit: number): StoredWorldPage => {
-  const hasNextPage = rows.length > limit;
-  const pageRows = hasNextPage ? rows.slice(0, limit) : rows;
-  const worlds = pageRows.map(mapWorldRow);
+const toStoredWorldPage = (
+  hasNextPage: boolean,
+  worlds: ReadonlyArray<StoredWorld>,
+): StoredWorldPage => {
   const lastWorld = worlds.at(-1);
+  const nextCursor = Match.value({ hasNextPage, lastWorld }).pipe(
+    Match.when(
+      { hasNextPage: true, lastWorld: Match.defined },
+      ({ lastWorld }) =>
+        encodeCursor({
+          updatedAt: lastWorld.updatedAt,
+          worldId: lastWorld.worldId,
+        }),
+    ),
+    Match.orElse(() => undefined),
+  );
 
-  return {
-    nextCursor:
-      hasNextPage && lastWorld !== undefined
-        ? encodeCursor({ updatedAt: lastWorld.updatedAt, worldId: lastWorld.worldId })
-        : undefined,
-    worlds,
-  };
+  return { nextCursor, worlds };
 };
 
-const transaction = <A>(database: SqliteDatabase["Service"]["database"], run: () => A) => {
-  database.exec("BEGIN IMMEDIATE");
+const finalizePage = (rows: ReadonlyArray<WorldRow>, limit: number) => {
+  const hasNextPage = rows.length > limit;
+  const pageRows = Match.value(hasNextPage).pipe(
+    Match.when(true, () => rows.slice(0, limit)),
+    Match.orElse(() => rows),
+  );
 
-  try {
-    const value = run();
-    database.exec("COMMIT");
-    return value;
-  } catch (error) {
-    try {
-      database.exec("ROLLBACK");
-    } catch {
-      // ignore rollback errors
-    }
-
-    throw error;
-  }
+  return Effect.forEach(pageRows, mapWorldRow).pipe(
+    Effect.map(
+      (worlds): StoredWorldPage => toStoredWorldPage(hasNextPage, worlds),
+    ),
+  );
 };
 
-export class WorldRepository extends ServiceMap.Service<
-  WorldRepository,
+const storageInvariant = (operation: string, message: string) =>
+  new StorageError({ cause: message, operation });
+
+const transaction = <A>(
+  database: SqliteDatabase["Service"]["database"],
+  run: () => A,
+) => database.transaction(run).immediate();
+
+export class WorldRepository extends ServiceMap.Service<WorldRepository>()(
+  "refactory/WorldRepository",
   {
-    readonly createOrGetWorld: (
-      record: CreateWorldRecord,
-    ) => Effect.Effect<StoredWorld, StorageError | IdempotencyConflictError | WorldNameTakenError, never>;
-    readonly findById: (
-      worldId: string,
-    ) => Effect.Effect<Option.Option<StoredWorld>, StorageError, never>;
-    readonly listOwnWorlds: (
-      hostPublicKey: string,
-      query: NormalizedWorldListQuery,
-    ) => Effect.Effect<StoredWorldPage, StorageError, never>;
-    readonly listPublicWorlds: (
-      query: NormalizedWorldListQuery,
-    ) => Effect.Effect<StoredWorldPage, StorageError, never>;
-  }
->()("refactory/WorldRepository") {
-  static readonly Live = Layer.effect(
-    WorldRepository,
-    Effect.gen(function* () {
+    make: Effect.gen(function* () {
       const sqlite = yield* SqliteDatabase;
       const { database } = sqlite;
 
@@ -367,20 +494,48 @@ export class WorldRepository extends ServiceMap.Service<
         world_name, normalized_name, mode, visibility, status, world_schema_version, ruleset_version,
         map_id, spec_json, snapshot_json, failure_reason, created_at, updated_at`;
 
-      const findById = Effect.fnUntraced(function*(worldId: string) {
+      const findById = Effect.fnUntraced(function* (worldId: string) {
         const row = yield* Effect.try({
           try: () =>
             database
-              .query<WorldRow, [string]>(`SELECT ${selectColumns} FROM worlds WHERE world_id = ?1`)
+              .query<WorldRow, [string]>(
+                `SELECT ${selectColumns} FROM worlds WHERE world_id = ?1`,
+              )
               .get(worldId),
-          catch: (cause) => new StorageError({ cause, operation: "worlds.findById" }),
+          catch: (cause) =>
+            new StorageError({ cause, operation: "worlds.findById" }),
         });
 
-        return row === null ? Option.none() : Option.some(mapWorldRow(row));
+        switch (row) {
+          case null:
+            return Option.none();
+        }
+
+        return Option.some(yield* mapWorldRow(row));
       });
 
-      const createOrGetWorld = Effect.fnUntraced(function*(record: CreateWorldRecord) {
-        return yield* Effect.try({
+      const createOrGetWorld = Effect.fnUntraced(function* (
+        record: CreateWorldRecord,
+      ) {
+        const specJson = yield* encodeWorldSpecJson(record.spec).pipe(
+          Effect.mapError(
+            (cause) =>
+              new PersistenceDecodeError({ cause, entity: "world_spec" }),
+          ),
+        );
+        const snapshotJson = yield* encodeWorldSnapshotJson(
+          record.snapshot,
+        ).pipe(
+          Effect.mapError(
+            (cause) =>
+              new PersistenceDecodeError({
+                cause,
+                entity: "world_snapshot",
+              }),
+          ),
+        );
+
+        const row = yield* Effect.try({
           try: () =>
             transaction(database, () => {
               const existingByIdempotency = database
@@ -391,61 +546,85 @@ export class WorldRepository extends ServiceMap.Service<
                 )
                 .get(record.actor.publicKey, record.idempotencyKey);
 
-              if (existingByIdempotency !== null) {
-                const world = mapWorldRow(existingByIdempotency);
+              switch (existingByIdempotency) {
+                case null:
+                  break;
+                default: {
+                  const world = {
+                    hostPublicKey: existingByIdempotency.host_public_key,
+                    mode: existingByIdempotency.mode,
+                    normalizedName: existingByIdempotency.normalized_name,
+                    snapshotJson: existingByIdempotency.snapshot_json,
+                    specJson: existingByIdempotency.spec_json,
+                    status: existingByIdempotency.status,
+                    visibility: existingByIdempotency.visibility,
+                    worldId: existingByIdempotency.world_id,
+                  };
 
-                if (!isSameCreateIntent(world, record)) {
-                  throw new IdempotencyConflictError({ idempotencyKey: record.idempotencyKey });
-                }
-
-                if (isRecoverableCreation(world)) {
-                  database
-                    .query(
-                      `UPDATE worlds
-                       SET host_name_snapshot = ?2,
-                           normalized_host_name_snapshot = ?3,
-                           world_name = ?4,
-                           normalized_name = ?5,
-                           mode = ?6,
-                           visibility = ?7,
-                           status = 'ready',
-                           world_schema_version = ?8,
-                           ruleset_version = ?9,
-                           map_id = ?10,
-                           spec_json = ?11,
-                           snapshot_json = ?12,
-                           failure_reason = NULL,
-                           updated_at = ?13
-                       WHERE world_id = ?1`,
-                    )
-                    .run(
-                      world.worldId,
-                      record.actor.displayName,
-                      record.normalizedHostNameSnapshot,
-                      record.worldName,
-                      record.normalizedName,
-                      record.spec.mode,
-                      record.spec.visibility,
-                      record.spec.worldSchemaVersion,
-                      record.spec.rulesetVersion,
-                      record.spec.mapId,
-                      JSON.stringify(record.spec),
-                      JSON.stringify(record.snapshot),
-                      record.updatedAt,
-                    );
-
-                  const repaired = database
-                    .query<WorldRow, [string]>(`SELECT ${selectColumns} FROM worlds WHERE world_id = ?1`)
-                    .get(world.worldId);
-
-                  if (repaired === null) {
-                    throw new Error("world disappeared during recovery");
+                  switch (isSameCreateIntent(world, record)) {
+                    case false:
+                      throw new IdempotencyConflictError({
+                        idempotencyKey: record.idempotencyKey,
+                      });
                   }
 
-                  return mapWorldRow(repaired);
-                }
+                  switch (isRecoverableCreation(world)) {
+                    case true: {
+                      database
+                        .query(
+                          `UPDATE worlds
+                           SET host_name_snapshot = ?2,
+                               normalized_host_name_snapshot = ?3,
+                               world_name = ?4,
+                               normalized_name = ?5,
+                               mode = ?6,
+                               visibility = ?7,
+                               status = 'ready',
+                               world_schema_version = ?8,
+                               ruleset_version = ?9,
+                               map_id = ?10,
+                               spec_json = ?11,
+                               snapshot_json = ?12,
+                               failure_reason = NULL,
+                               updated_at = ?13
+                           WHERE world_id = ?1`,
+                        )
+                        .run(
+                          world.worldId,
+                          record.actor.displayName,
+                          record.normalizedHostNameSnapshot,
+                          record.worldName,
+                          record.normalizedName,
+                          record.spec.mode,
+                          record.spec.visibility,
+                          record.spec.worldSchemaVersion,
+                          record.spec.rulesetVersion,
+                          record.spec.mapId,
+                          specJson,
+                          snapshotJson,
+                          record.updatedAt,
+                        );
 
-                return world;
+                      const repaired = database
+                        .query<WorldRow, [string]>(
+                          `SELECT ${selectColumns} FROM worlds WHERE world_id = ?1`,
+                        )
+                        .get(world.worldId);
+
+                      switch (repaired) {
+                        case null:
+                          throw storageInvariant(
+                            "worlds.createOrGetWorld",
+                            "world disappeared during recovery",
+                          );
+                        default:
+                          return repaired;
+                      }
+                    }
+                    default:
+                      return existingByIdempotency;
+                  }
+                }
               }
 
               const existingByName = database
@@ -456,8 +635,13 @@ export class WorldRepository extends ServiceMap.Service<
                 )
                 .get(record.actor.publicKey, record.normalizedName);
 
-              if (existingByName !== null) {
-                throw new WorldNameTakenError({ worldName: record.worldName });
+              switch (existingByName) {
+                case null:
+                  break;
+                default:
+                  throw new WorldNameTakenError({
+                    worldName: record.worldName,
+                  });
               }
 
               database
@@ -487,41 +671,71 @@ export class WorldRepository extends ServiceMap.Service<
                   record.spec.worldSchemaVersion,
                   record.spec.rulesetVersion,
                   record.spec.mapId,
-                  JSON.stringify(record.spec),
-                  JSON.stringify(record.snapshot),
+                  specJson,
+                  snapshotJson,
                   record.createdAt,
                   record.updatedAt,
                 );
 
               const inserted = database
-                .query<WorldRow, [string]>(`SELECT ${selectColumns} FROM worlds WHERE world_id = ?1`)
+                .query<WorldRow, [string]>(
+                  `SELECT ${selectColumns} FROM worlds WHERE world_id = ?1`,
+                )
                 .get(record.worldId);
 
-              if (inserted === null) {
-                throw new Error("world insert did not return a row");
+              switch (inserted) {
+                case null:
+                  throw storageInvariant(
+                    "worlds.createOrGetWorld",
+                    "world insert did not return a row",
+                  );
               }
 
-              return mapWorldRow(inserted);
+              return inserted;
             }),
           catch: (cause) =>
-            cause instanceof IdempotencyConflictError || cause instanceof WorldNameTakenError
-              ? cause
-              : new StorageError({ cause, operation: "worlds.createOrGetWorld" }),
+            Match.value(cause).pipe(
+              Match.when(
+                Match.instanceOf(IdempotencyConflictError),
+                (conflictError) => conflictError,
+              ),
+              Match.when(
+                Match.instanceOf(WorldNameTakenError),
+                (nameTaken) => nameTaken,
+              ),
+              Match.when(
+                Match.instanceOf(StorageError),
+                (storageError) => storageError,
+              ),
+              Match.orElse(
+                (storageCause) =>
+                  new StorageError({
+                    cause: storageCause,
+                    operation: "worlds.createOrGetWorld",
+                  }),
+              ),
+            ),
         });
+
+        return yield* mapWorldRow(row);
       });
 
-      const listOwnWorlds = Effect.fnUntraced(function*(hostPublicKey: string, query: NormalizedWorldListQuery) {
+      const listOwnWorlds = Effect.fnUntraced(function* (
+        hostPublicKey: string,
+        query: NormalizedWorldListQuery,
+      ) {
         const limit = query.limit + 1;
-        const searchPattern = query.normalizedSearch === undefined || query.normalizedSearch.length === 0
-          ? null
-          : `%${query.normalizedSearch}%`;
+        const searchPattern = toSearchPattern(query.normalizedSearch);
         const cursorUpdatedAt = query.cursor?.updatedAt ?? null;
         const cursorWorldId = query.cursor?.worldId ?? null;
 
         const rows = yield* Effect.try({
           try: () =>
             database
-              .query<WorldRow, [string, string | null, string | null, string | null, number]>(
+              .query<
+                WorldRow,
+                [string, string | null, string | null, string | null, number]
+              >(
                 `SELECT ${selectColumns}
                  FROM worlds
                  WHERE host_public_key = ?1
@@ -530,25 +744,35 @@ export class WorldRepository extends ServiceMap.Service<
                  ORDER BY updated_at DESC, world_id DESC
                  LIMIT ?5`,
               )
-              .all(hostPublicKey, searchPattern, cursorUpdatedAt, cursorWorldId, limit),
-          catch: (cause) => new StorageError({ cause, operation: "worlds.listOwnWorlds" }),
+              .all(
+                hostPublicKey,
+                searchPattern,
+                cursorUpdatedAt,
+                cursorWorldId,
+                limit,
+              ),
+          catch: (cause) =>
+            new StorageError({ cause, operation: "worlds.listOwnWorlds" }),
         });
 
-        return finalizePage(rows, query.limit);
+        return yield* finalizePage(rows, query.limit);
       });
 
-      const listPublicWorlds = Effect.fnUntraced(function*(query: NormalizedWorldListQuery) {
+      const listPublicWorlds = Effect.fnUntraced(function* (
+        query: NormalizedWorldListQuery,
+      ) {
         const limit = query.limit + 1;
-        const searchPattern = query.normalizedSearch === undefined || query.normalizedSearch.length === 0
-          ? null
-          : `%${query.normalizedSearch}%`;
+        const searchPattern = toSearchPattern(query.normalizedSearch);
         const cursorUpdatedAt = query.cursor?.updatedAt ?? null;
         const cursorWorldId = query.cursor?.worldId ?? null;
 
         const rows = yield* Effect.try({
           try: () =>
             database
-              .query<WorldRow, [string | null, string | null, string | null, number]>(
+              .query<
+                WorldRow,
+                [string | null, string | null, string | null, number]
+              >(
                 `SELECT ${selectColumns}
                  FROM worlds
                  WHERE visibility = 'public'
@@ -559,10 +783,11 @@ export class WorldRepository extends ServiceMap.Service<
                  LIMIT ?4`,
               )
               .all(searchPattern, cursorUpdatedAt, cursorWorldId, limit),
-          catch: (cause) => new StorageError({ cause, operation: "worlds.listPublicWorlds" }),
+          catch: (cause) =>
+            new StorageError({ cause, operation: "worlds.listPublicWorlds" }),
         });
 
-        return finalizePage(rows, query.limit);
+        return yield* finalizePage(rows, query.limit);
       });
 
       return {
@@ -572,49 +797,42 @@ export class WorldRepository extends ServiceMap.Service<
         listPublicWorlds,
       };
     }),
-  );
+  },
+) {
+  static readonly Live = Layer.effect(WorldRepository, WorldRepository.make);
 }
 
-export class WorldService extends ServiceMap.Service<
-  WorldService,
+export class WorldService extends ServiceMap.Service<WorldService>()(
+  "refactory/WorldService",
   {
-    readonly createWorld: (
-      actor: ActorContext,
-      request: CreateWorldRequest,
-    ) => Effect.Effect<WorldDetail, IdempotencyConflictError | InvalidWorldNameError | WorldNameTakenError, never>;
-    readonly getWorld: (
-      actor: ActorContext,
-      worldId: string,
-    ) => Effect.Effect<WorldDetail, WorldNotFoundError | WorldAccessDeniedError, never>;
-    readonly listOwnWorlds: (
-      actor: ActorContext,
-      query: WorldListQuery,
-    ) => Effect.Effect<Schema.Schema.Type<typeof ListWorldsResponse>, InvalidWorldCursorError, never>;
-    readonly listPublicWorlds: (
-      query: WorldListQuery,
-    ) => Effect.Effect<Schema.Schema.Type<typeof ListWorldsResponse>, InvalidWorldCursorError, never>;
-  }
->()("refactory/WorldService") {
-  static readonly Live = Layer.effect(
-    WorldService,
-    Effect.gen(function* () {
+    make: Effect.gen(function* () {
       const config = yield* AppConfig;
       const profiles = yield* ProfileRepository;
       const worlds = yield* WorldRepository;
 
-      const createWorld = Effect.fnUntraced(function*(actor: ActorContext, request: CreateWorldRequest) {
+      const createWorld = Effect.fnUntraced(function* (
+        actor: ActorContext,
+        request: CreateWorldRequest,
+      ) {
         const normalizedName = normalizeSearchText(request.worldName);
 
-        if (normalizedName.length === 0) {
-          return yield* Effect.fail(new InvalidWorldNameError({ message: "World name cannot be empty" }));
-        }
+        yield* failIfDefined(
+          Match.value(normalizedName.length).pipe(
+            Match.when(
+              0,
+              () =>
+                new InvalidWorldNameError({
+                  message: "World name cannot be empty",
+                }),
+            ),
+            Match.orElse(() => undefined),
+          ),
+        );
 
         const now = new Date().toISOString();
         const visibility = request.visibility ?? "private";
 
-        yield* profiles.upsertProfile(actor, now).pipe(
-          Effect.catchTag("StorageError", Effect.die),
-        );
+        yield* profiles.upsertProfile(actor, now);
 
         const spec: WorldSpec = {
           hostAssetId: request.hostAssetId,
@@ -624,7 +842,11 @@ export class WorldService extends ServiceMap.Service<
           visibility,
           worldSchemaVersion: config.worldSchemaVersion,
         };
-        const snapshot = buildWorldSnapshot(request.mode, request.hostAssetId, actor.publicKey);
+        const snapshot = buildWorldSnapshot(
+          request.mode,
+          request.hostAssetId,
+          actor.publicKey,
+        );
 
         const world = yield* worlds.createOrGetWorld({
           actor,
@@ -637,50 +859,49 @@ export class WorldService extends ServiceMap.Service<
           updatedAt: now,
           worldId: crypto.randomUUID(),
           worldName: request.worldName,
-        }).pipe(
-          Effect.catchTag("StorageError", Effect.die),
-        );
+        });
 
         return toWorldDetail(world);
       });
 
-      const getWorld = Effect.fnUntraced(function*(actor: ActorContext, worldId: string) {
-        yield* profiles.upsertProfile(actor, new Date().toISOString()).pipe(
-          Effect.catchTag("StorageError", Effect.die),
-        );
+      const getWorld = Effect.fnUntraced(function* (
+        actor: ActorContext,
+        worldId: string,
+      ) {
+        yield* profiles.upsertProfile(actor, new Date().toISOString());
 
-        const worldOption = yield* worlds.findById(worldId).pipe(
-          Effect.catchTag("StorageError", Effect.die),
-        );
-
-        if (Option.isNone(worldOption)) {
-          return yield* Effect.fail(new WorldNotFoundError({ worldId }));
-        }
-
-        const world = worldOption.value;
+        const worldOption = yield* worlds.findById(worldId);
+        const world = yield* Option.match(worldOption, {
+          onNone: () => Effect.fail(new WorldNotFoundError({ worldId })),
+          onSome: Effect.succeed,
+        });
         const isOwner = world.hostPublicKey === actor.publicKey;
-        const isPublicReadable = world.visibility === "public" && world.status === "ready";
+        const isPublicReadable =
+          world.visibility === "public" && world.status === "ready";
 
-        if (!isOwner && !isPublicReadable) {
-          return yield* Effect.fail(new WorldAccessDeniedError({ worldId }));
-        }
+        yield* failIfDefined(
+          Match.value({ isOwner, isPublicReadable }).pipe(
+            Match.when(
+              { isOwner: false, isPublicReadable: false },
+              () => new WorldAccessDeniedError({ worldId }),
+            ),
+            Match.orElse(() => undefined),
+          ),
+        );
 
         return toWorldDetail(world);
       });
 
-      const listOwnWorlds = Effect.fnUntraced(function*(actor: ActorContext, query: WorldListQuery) {
-        yield* profiles.upsertProfile(actor, new Date().toISOString()).pipe(
-          Effect.catchTag("StorageError", Effect.die),
-        );
+      const listOwnWorlds = Effect.fnUntraced(function* (
+        actor: ActorContext,
+        query: WorldListQuery,
+      ) {
+        yield* profiles.upsertProfile(actor, new Date().toISOString());
+        const normalizedQuery = yield* requireNormalizedWorldListQuery(query);
 
-        const normalizedQuery = normalizeWorldListQuery(query);
-
-        if (Option.isNone(normalizedQuery)) {
-          return yield* Effect.fail(new InvalidWorldCursorError({ message: "World list cursor is invalid" }));
-        }
-
-        const page = yield* worlds.listOwnWorlds(actor.publicKey, normalizedQuery.value).pipe(
-          Effect.catchTag("StorageError", Effect.die),
+        const page = yield* worlds.listOwnWorlds(
+          actor.publicKey,
+          normalizedQuery,
         );
 
         return {
@@ -689,16 +910,12 @@ export class WorldService extends ServiceMap.Service<
         };
       });
 
-      const listPublicWorlds = Effect.fnUntraced(function*(query: WorldListQuery) {
-        const normalizedQuery = normalizeWorldListQuery(query);
+      const listPublicWorlds = Effect.fnUntraced(function* (
+        query: WorldListQuery,
+      ) {
+        const normalizedQuery = yield* requireNormalizedWorldListQuery(query);
 
-        if (Option.isNone(normalizedQuery)) {
-          return yield* Effect.fail(new InvalidWorldCursorError({ message: "World list cursor is invalid" }));
-        }
-
-        const page = yield* worlds.listPublicWorlds(normalizedQuery.value).pipe(
-          Effect.catchTag("StorageError", Effect.die),
-        );
+        const page = yield* worlds.listPublicWorlds(normalizedQuery);
 
         return {
           nextCursor: page.nextCursor,
@@ -713,5 +930,7 @@ export class WorldService extends ServiceMap.Service<
         listPublicWorlds,
       };
     }),
-  );
+  },
+) {
+  static readonly Live = Layer.effect(WorldService, WorldService.make);
 }

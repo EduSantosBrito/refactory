@@ -1,15 +1,21 @@
-import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { MeshStandardMaterial } from "three";
+import { useRef } from "react";
 import type { Group, Mesh } from "three";
-import { B, M } from "./palette";
+import { MeshStandardMaterial } from "three";
+import { Antenna } from "../Antenna";
+import { PortDock } from "../belt/PortDock";
+import { SMELTER_PORTS } from "../belt/ports";
 import type { ModelProps } from "../colors";
 import { COLORS } from "../colors";
 import { StatusPole, type StatusPoleStatus } from "../StatusPole";
-import { Antenna } from "../Antenna";
+import { B, M } from "./palette";
 
 /* ── Chimney smoke — wispy rising plume (same as BiomassBurner) ── */
 const SMOKE_COUNT = 12;
+const SMOKE_KEYS = Array.from(
+  { length: SMOKE_COUNT },
+  (_, index) => `sm-${index}`,
+);
 
 /** Per-puff random drift stored at spawn time */
 type PuffState = { driftX: number; driftZ: number; riseSpeed: number };
@@ -22,7 +28,8 @@ function ChimneySmoke() {
 
   useFrame(({ clock }, delta) => {
     for (let i = 0; i < refs.current.length; i++) {
-      const smoke = refs.current[i]!;
+      const smoke = refs.current[i];
+      if (!smoke) continue;
       if (!smoke.visible) continue;
       const p = puffs.current.get(i);
       if (!p) continue;
@@ -30,10 +37,15 @@ function ChimneySmoke() {
       smoke.scale.setScalar(smoke.scale.x + delta * 0.12);
       smoke.position.y += delta * p.riseSpeed;
       smoke.position.x += delta * p.driftX;
-      smoke.position.z += delta * p.driftZ + Math.sin(clock.elapsedTime * 0.6 + i) * delta * 0.003;
+      smoke.position.z +=
+        delta * p.driftZ +
+        Math.sin(clock.elapsedTime * 0.6 + i) * delta * 0.003;
 
       if (smoke.material instanceof MeshStandardMaterial) {
-        smoke.material.opacity = Math.max(0, smoke.material.opacity - delta * 0.07);
+        smoke.material.opacity = Math.max(
+          0,
+          smoke.material.opacity - delta * 0.07,
+        );
         if (smoke.material.opacity <= 0) {
           smoke.visible = false;
         }
@@ -48,11 +60,7 @@ function ChimneySmoke() {
         const r = Math.random() * 0.025;
         smoke.visible = true;
         smoke.scale.setScalar(0.8 + Math.random() * 0.6);
-        smoke.position.set(
-          Math.cos(angle) * r,
-          0,
-          Math.sin(angle) * r,
-        );
+        smoke.position.set(Math.cos(angle) * r, 0, Math.sin(angle) * r);
         puffs.current.set(idx, {
           driftX: (Math.random() - 0.3) * 0.012,
           driftZ: (Math.random() - 0.5) * 0.008,
@@ -69,9 +77,9 @@ function ChimneySmoke() {
 
   return (
     <group>
-      {Array.from({ length: SMOKE_COUNT }, (_, i) => (
+      {SMOKE_KEYS.map((smokeKey, i) => (
         <mesh
-          key={`sm-${i}`}
+          key={smokeKey}
           ref={(el) => {
             if (el) refs.current[i] = el;
           }}
@@ -105,7 +113,7 @@ function ChimneySmoke() {
 
 /* ── Warm palette — uses established smelter + structural colors ── */
 const WARM_FRAME = COLORS.smelterDark; // #c4633a — recessed panels, frames
-const WARM_COLLAR = B.mid;             // #4a4f5a — structural collars, brackets
+const WARM_COLLAR = B.mid; // #4a4f5a — structural collars, brackets
 
 /* ── Dimensions ── */
 const SIDES = 8;
@@ -119,7 +127,7 @@ const COLLAR_TOP = FOUND_H + COLLAR_H;
 /* Belly — squat wide sphere, cauldron shape */
 const BELLY_R = 0.15;
 const BELLY_SX = 1.35;
-const BELLY_SY = 0.80;
+const BELLY_SY = 0.8;
 const BELLY_EFF_R = BELLY_R * BELLY_SX; // ~0.20
 const BELLY_HH = BELLY_R * BELLY_SY; // ~0.105
 const BELLY_Y = COLLAR_TOP + BELLY_HH; // ~0.325
@@ -166,7 +174,8 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
         if (seam) (seam.material as MeshStandardMaterial).emissiveIntensity = 0;
       }
       if (poolRef.current) {
-        (poolRef.current.material as MeshStandardMaterial).emissiveIntensity = 0;
+        (poolRef.current.material as MeshStandardMaterial).emissiveIntensity =
+          0;
       }
       return;
     }
@@ -218,7 +227,7 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
           <meshStandardMaterial color={B.mid} {...M} roughness={0.6} />
         </mesh>
         <mesh position={[0, -FOUND_H / 2 + 0.005, 0]}>
-          <cylinderGeometry args={[0.30, 0.31, 0.012, SIDES]} />
+          <cylinderGeometry args={[0.3, 0.31, 0.012, SIDES]} />
           <meshStandardMaterial color={B.dark} {...M} roughness={0.65} />
         </mesh>
       </group>
@@ -228,23 +237,31 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
           ═══════════════════════════════════════════ */}
       <group position={[0, FOUND_H + COLLAR_H / 2, 0]}>
         <mesh>
-          <cylinderGeometry args={[0.20, 0.24, COLLAR_H, SIDES]} />
+          <cylinderGeometry args={[0.2, 0.24, COLLAR_H, SIDES]} />
           <meshStandardMaterial color={WARM_COLLAR} {...M} roughness={0.6} />
         </mesh>
         {/* Warm accent ring at top */}
         <mesh position={[0, COLLAR_H / 2 - 0.005, 0]}>
           <cylinderGeometry args={[0.205, 0.21, 0.008, SIDES]} />
-          <meshStandardMaterial color={COLORS.smelterDark} {...M} roughness={0.55} />
+          <meshStandardMaterial
+            color={COLORS.smelterDark}
+            {...M}
+            roughness={0.55}
+          />
         </mesh>
         {Array.from({ length: SIDES }, (_, i) => {
           const a = (i / SIDES) * Math.PI * 2;
           return (
             <mesh
-              key={`cb-${i}`}
+              key={`cb-${a.toFixed(3)}`}
               position={[Math.sin(a) * 0.215, 0, Math.cos(a) * 0.215]}
             >
               <cylinderGeometry args={[0.008, 0.008, 0.01, 6]} />
-              <meshStandardMaterial color={COLORS.smelterDark} {...M} roughness={0.55} />
+              <meshStandardMaterial
+                color={COLORS.smelterDark}
+                {...M}
+                roughness={0.55}
+              />
             </mesh>
           );
         })}
@@ -284,7 +301,7 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
 
       {/* Lower belly collar — transition from collar to sphere */}
       <mesh position={[0, COLLAR_TOP + 0.015, 0]}>
-        <cylinderGeometry args={[BELLY_EFF_R - 0.02, 0.20, 0.03, SIDES]} />
+        <cylinderGeometry args={[BELLY_EFF_R - 0.02, 0.2, 0.03, SIDES]} />
         <meshStandardMaterial color={WARM_FRAME} {...M} roughness={0.6} />
       </mesh>
 
@@ -323,7 +340,7 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
         </mesh>
         {/* Fire glow — large and bright */}
         <mesh ref={glowRef1} position={[0, 0, 0.01]}>
-          <boxGeometry args={[0.12, 0.10, 0.008]} />
+          <boxGeometry args={[0.12, 0.1, 0.008]} />
           <meshStandardMaterial
             color={COLORS.smelter}
             emissive={COLORS.smelter}
@@ -358,7 +375,7 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
         const a = (deg * Math.PI) / 180;
         return (
           <group
-            key={`sv-${idx}`}
+            key={`sv-${deg}`}
             position={[
               Math.sin(a) * (BELLY_EFF_R - 0.005),
               BELLY_Y,
@@ -367,8 +384,12 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
             rotation={[0, -a, 0]}
           >
             <mesh>
-              <boxGeometry args={[0.10, 0.08, 0.018]} />
-              <meshStandardMaterial color={WARM_FRAME} {...M} roughness={0.65} />
+              <boxGeometry args={[0.1, 0.08, 0.018]} />
+              <meshStandardMaterial
+                color={WARM_FRAME}
+                {...M}
+                roughness={0.65}
+              />
             </mesh>
             <mesh
               ref={idx === 0 ? glowRef2 : glowRef3}
@@ -384,9 +405,13 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
               />
             </mesh>
             {[-1, 1].map((row) => (
-              <mesh key={`sg-${idx}-${row}`} position={[0, row * 0.02, 0.013]}>
+              <mesh key={`sg-${deg}-${row}`} position={[0, row * 0.02, 0.013]}>
                 <boxGeometry args={[0.08, 0.006, 0.005]} />
-                <meshStandardMaterial color={WARM_FRAME} {...M} roughness={0.6} />
+                <meshStandardMaterial
+                  color={WARM_FRAME}
+                  {...M}
+                  roughness={0.6}
+                />
               </mesh>
             ))}
           </group>
@@ -412,7 +437,11 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
             </mesh>
             <mesh position={[0, 0, 0.003]}>
               <boxGeometry args={[0.045, 0.05, 0.008]} />
-              <meshStandardMaterial color={WARM_COLLAR} {...M} roughness={0.6} />
+              <meshStandardMaterial
+                color={WARM_COLLAR}
+                {...M}
+                roughness={0.6}
+              />
             </mesh>
           </group>
         );
@@ -427,7 +456,9 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
       </mesh>
       {/* Neck accent ring */}
       <mesh position={[0, NECK_Y, 0]}>
-        <torusGeometry args={[(NECK_BOT_R + NECK_TOP_R) / 2, 0.006, 6, SIDES]} />
+        <torusGeometry
+          args={[(NECK_BOT_R + NECK_TOP_R) / 2, 0.006, 6, SIDES]}
+        />
         <meshStandardMaterial
           color={COLORS.smelterDark}
           {...M}
@@ -454,7 +485,11 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
           <cylinderGeometry
             args={[MOUTH_TOP_R + 0.015, MOUTH_TOP_R + 0.012, 0.008, SIDES]}
           />
-          <meshStandardMaterial color={COLORS.smelterDark} {...M} roughness={0.5} />
+          <meshStandardMaterial
+            color={COLORS.smelterDark}
+            {...M}
+            roughness={0.5}
+          />
         </mesh>
         {/* 8× Rim bolts */}
         {Array.from({ length: SIDES }, (_, i) => {
@@ -462,11 +497,15 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
           const r = MOUTH_TOP_R + 0.008;
           return (
             <mesh
-              key={`rb-${i}`}
+              key={`rb-${a.toFixed(3)}`}
               position={[Math.sin(a) * r, 0, Math.cos(a) * r]}
             >
               <cylinderGeometry args={[0.006, 0.006, 0.01, 6]} />
-              <meshStandardMaterial color={WARM_COLLAR} {...M} roughness={0.55} />
+              <meshStandardMaterial
+                color={WARM_COLLAR}
+                {...M}
+                roughness={0.55}
+              />
             </mesh>
           );
         })}
@@ -497,7 +536,7 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
         rotation={[0, -Math.PI / 2, 0]}
       >
         <mesh>
-          <cylinderGeometry args={[0.065, 0.04, 0.10, 6]} />
+          <cylinderGeometry args={[0.065, 0.04, 0.1, 6]} />
           <meshStandardMaterial color={WARM_FRAME} {...M} roughness={0.65} />
         </mesh>
         <mesh position={[0, 0.015, 0]}>
@@ -524,8 +563,6 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
         </mesh>
       </group>
 
-
-
       {/* ═══════════════════════════════════════════
           8. BELLOWS — THE hero feature, left side
           Large animated accordion that pumps air.
@@ -537,7 +574,7 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
         rotation={[0, Math.PI / 2, 0]}
       >
         <mesh>
-          <boxGeometry args={[0.10, 0.11, 0.018]} />
+          <boxGeometry args={[0.1, 0.11, 0.018]} />
           <meshStandardMaterial color={WARM_FRAME} {...M} roughness={0.65} />
         </mesh>
         <mesh position={[0, 0, 0.009]}>
@@ -568,8 +605,8 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
             <mesh key={`bel-${i}`} position={[0, i * 0.02, 0]}>
               <cylinderGeometry
                 args={[
-                  wide ? 0.10 : 0.065,
-                  wide ? 0.10 : 0.065,
+                  wide ? 0.1 : 0.065,
+                  wide ? 0.1 : 0.065,
                   wide ? 0.016 : 0.012,
                   SIDES,
                 ]}
@@ -592,7 +629,13 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
         {/* Handle knob */}
         <mesh position={[0, 0.155, 0]}>
           <sphereGeometry args={[0.028, 8, 6]} />
-          <meshStandardMaterial color={COLORS.smelterLight} emissive={COLORS.smelter} emissiveIntensity={0.15} {...M} roughness={0.5} />
+          <meshStandardMaterial
+            color={COLORS.smelterLight}
+            emissive={COLORS.smelter}
+            emissiveIntensity={0.15}
+            {...M}
+            roughness={0.5}
+          />
         </mesh>
 
         {/* Accent ring at base */}
@@ -675,7 +718,18 @@ export function OreSmelter({ status = "green", ...props }: OreSmelterProps) {
         scale={0.25}
         status={status}
       />
-      <Antenna position={[-0.10, BODY_TOP + 0.005, -0.06]} scale={0.22} speed={0.4} />
+      <Antenna
+        position={[-0.1, BODY_TOP + 0.005, -0.06]}
+        scale={0.22}
+        speed={0.4}
+      />
+
+      {/* ═══════════════════════════════════════════
+          11. PORT DOCKS — west input, east output
+          ═══════════════════════════════════════════ */}
+      {[...SMELTER_PORTS.inputs, ...SMELTER_PORTS.outputs].map((port) => (
+        <PortDock key={port.id} port={port} />
+      ))}
     </group>
   );
 }

@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { Data, Effect, Layer, ServiceMap } from "effect";
+import { Data, Effect, Layer, Match, ServiceMap } from "effect";
 import { AppConfig } from "./app-config.ts";
 
 const schemaSql = `
@@ -55,17 +55,34 @@ type TableInfoRow = {
   readonly name: string;
 };
 
-const ensureWorldColumn = (database: Database, columnName: string, definition: string) => {
-  const columns = database.query<TableInfoRow, []>("PRAGMA table_info(worlds)").all();
+const ensureWorldColumn = (
+  database: Database,
+  columnName: string,
+  definition: string,
+) => {
+  const columns = database
+    .query<TableInfoRow, []>("PRAGMA table_info(worlds)")
+    .all();
 
-  if (!columns.some((column) => column.name === columnName)) {
-    database.exec(`ALTER TABLE worlds ADD COLUMN ${definition}`);
-  }
+  return Match.value(columns.some((column) => column.name === columnName)).pipe(
+    Match.when(false, () => {
+      database.exec(`ALTER TABLE worlds ADD COLUMN ${definition}`);
+    }),
+    Match.orElse(() => undefined),
+  );
 };
 
 const migrateWorldsTable = (database: Database) => {
-  ensureWorldColumn(database, "host_name_snapshot", "host_name_snapshot TEXT NOT NULL DEFAULT 'Unknown Host'");
-  ensureWorldColumn(database, "normalized_host_name_snapshot", "normalized_host_name_snapshot TEXT NOT NULL DEFAULT 'unknown host'");
+  ensureWorldColumn(
+    database,
+    "host_name_snapshot",
+    "host_name_snapshot TEXT NOT NULL DEFAULT 'Unknown Host'",
+  );
+  ensureWorldColumn(
+    database,
+    "normalized_host_name_snapshot",
+    "normalized_host_name_snapshot TEXT NOT NULL DEFAULT 'unknown host'",
+  );
 
   database.exec(`
     UPDATE worlds
@@ -101,10 +118,17 @@ export class SqliteDatabase extends ServiceMap.Service<
     SqliteDatabase,
     Effect.gen(function* () {
       const config = yield* AppConfig;
-      const database = new Database(config.databasePath);
+      const openDatabase = Effect.sync(() => new Database(config.databasePath));
+      const database = yield* Effect.acquireRelease(openDatabase, (database) =>
+        Effect.sync(() => {
+          database.close();
+        }),
+      );
 
-      database.exec(schemaSql);
-      migrateWorldsTable(database);
+      yield* Effect.sync(() => {
+        database.exec(schemaSql);
+        migrateWorldsTable(database);
+      });
 
       return { database };
     }),

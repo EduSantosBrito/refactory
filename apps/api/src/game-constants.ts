@@ -136,30 +136,3 @@ export const MACHINE_DEFINITIONS: ReadonlyArray<MachineDefinition> = [
     ],
   },
 ];
-
-const unique = (values: ReadonlyArray<string>) => values.filter((value, index) => values.indexOf(value) === index);
-
-export const findBuildableDefinition = (buildableId: string) =>
-  BUILDABLE_DEFINITIONS.find((definition) => definition.buildableId === buildableId);
-
-export const findGeneratorDefinition = (buildableId: string) =>
-  findBuildableDefinition(buildableId)?.generator;
-
-export const findMachineDefinition = (kind: string) =>
-  MACHINE_DEFINITIONS.find((definition) => definition.kind === kind);
-
-export const machineStartsWithoutSelectedRecipe = (kind: string) =>
-  findMachineDefinition(kind)?.defaultRecipeId === undefined;
-
-export const findMachineRecipe = (kind: string, recipeId: string | undefined) =>
-  findMachineDefinition(kind)?.recipes.find((recipe) => recipe.recipeId === recipeId);
-
-export const inputAcceptedItemIdsForKind = (kind: string) =>
-  unique(
-    (findMachineDefinition(kind)?.recipes ?? []).flatMap((recipe) =>
-      recipe.input === undefined ? [] : [recipe.input.itemId]
-    ),
-  );
-
-export const outputAcceptedItemIdsForKind = (kind: string) =>
-  unique((findMachineDefinition(kind)?.recipes ?? []).map((recipe) => recipe.output.itemId));

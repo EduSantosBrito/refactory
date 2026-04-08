@@ -31,24 +31,24 @@ export type NatureEl = {
  */
 const RADII: Record<string, Partial<Record<NatureSize, number>>> = {
   // Trees — trunk-based collision
-  oak:      { sm: 0.02, md: 0.06, lg: 0.12 },
-  pine:     { sm: 0.02, md: 0.06, lg: 0.12 },
+  oak: { sm: 0.02, md: 0.06, lg: 0.12 },
+  pine: { sm: 0.02, md: 0.06, lg: 0.12 },
   detailed: { sm: 0.02, md: 0.06, lg: 0.12 },
-  flattop:  { sm: 0.02, md: 0.06, lg: 0.12 },
-  dead:     { sm: 0.03, md: 0.05, lg: 0.05 },
+  flattop: { sm: 0.02, md: 0.06, lg: 0.12 },
+  dead: { sm: 0.03, md: 0.05, lg: 0.05 },
 
   // Rocks — solid collision
-  rock:      { sm: 0.05, md: 0.08, lg: 0.12 },
-  formation: { sm: 0.10, md: 0.15, lg: 0.20 },
+  rock: { sm: 0.05, md: 0.08, lg: 0.12 },
+  formation: { sm: 0.1, md: 0.15, lg: 0.2 },
 
   // Small obstacles
-  bush:  { sm: 0.04, md: 0.06, lg: 0.08 },
+  bush: { sm: 0.04, md: 0.06, lg: 0.08 },
   stump: { sm: 0.04, md: 0.05, lg: 0.07 },
-  log:   { sm: 0.06, md: 0.06, lg: 0.06 },
+  log: { sm: 0.06, md: 0.06, lg: 0.06 },
 
   // No collision — player walks right through
-  grass:    {},
-  flower:   {},
+  grass: {},
+  flower: {},
   mushroom: {},
 };
 
@@ -81,7 +81,8 @@ export function checkCollision(
   elements: readonly NatureEl[],
 ): boolean {
   for (let i = 0; i < elements.length; i++) {
-    const el = elements[i]!;
+    const el = elements[i];
+    if (!el) continue;
     const baseR = collisionRadius(el.type, el.size);
     if (baseR === 0) continue;
 
@@ -187,7 +188,8 @@ export function buildSpatialHash(elements: readonly NatureEl[]): SpatialHash {
   const cells = new Map<number, NatureEl[]>();
 
   for (let i = 0; i < elements.length; i++) {
-    const el = elements[i]!;
+    const el = elements[i];
+    if (!el) continue;
     if (collisionRadius(el.type, el.size) === 0) continue;
 
     const cx = toCell(el.x);
@@ -232,7 +234,10 @@ export function queryNearby(
       const bucket = hash.cells.get(cellKey(cx, cz));
       if (bucket) {
         for (let i = 0; i < bucket.length; i++) {
-          result.push(bucket[i]!);
+          const element = bucket[i];
+          if (element) {
+            result.push(element);
+          }
         }
       }
     }

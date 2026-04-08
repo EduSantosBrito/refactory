@@ -1,10 +1,10 @@
-import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Color } from "three";
+import { useMemo, useRef } from "react";
 import type { Mesh, MeshStandardMaterial } from "three";
+import { Color } from "three";
 import { COLORS, MAT, type ModelProps } from "./colors";
-import { StatusPole } from "./StatusPole";
 import type { StatusPoleStatus } from "./StatusPole";
+import { StatusPole } from "./StatusPole";
 
 /**
  * Industrial power pole — Satisfactory-inspired stacked hub
@@ -31,6 +31,7 @@ const SPARKS_PER_INSULATOR = 3;
 const SPARK_CHANCE = 0.12; // chance per spark per frame to appear
 const SPARK_RANGE = 0.06; // how far sparks scatter from insulator center
 const SPARK_LIFE = 80; // ms a spark stays visible
+const SPARK_KEYS = ["spark-0", "spark-1", "spark-2"] as const;
 
 type PowerPoleStatus = Extract<StatusPoleStatus, "green" | "red">;
 
@@ -38,10 +39,7 @@ type PowerPoleProps = ModelProps & {
   status?: PowerPoleStatus;
 };
 
-export function PowerPole({
-  status = "green",
-  ...props
-}: PowerPoleProps) {
+export function PowerPole({ status = "green", ...props }: PowerPoleProps) {
   const energized = status === "green";
   const ceramicRefs = useRef<Mesh[]>([]);
   const sparkRefs = useRef<Mesh[]>([]);
@@ -53,7 +51,8 @@ export function PowerPole({
 
   useFrame((_, delta) => {
     const target = energized ? 1 : 0;
-    progress.current += (target - progress.current) * Math.min(delta * LERP_SPEED, 1);
+    progress.current +=
+      (target - progress.current) * Math.min(delta * LERP_SPEED, 1);
     const t = progress.current;
     const now = Date.now();
 
@@ -66,9 +65,9 @@ export function PowerPole({
       mat.emissive.copy(COLOR_CERAMIC).lerp(COLOR_GLOW, t);
 
       const flicker =
-        0.6
-        + Math.sin(now * 0.006 + i * 3) * 0.25
-        + Math.sin(now * 0.017 + i * 5) * 0.15;
+        0.6 +
+        Math.sin(now * 0.006 + i * 3) * 0.25 +
+        Math.sin(now * 0.017 + i * 5) * 0.15;
       mat.emissiveIntensity = t * flicker * 2.4;
       mat.toneMapped = t < 0.5;
     });
@@ -80,7 +79,12 @@ export function PowerPole({
         spark.visible = false;
         return;
       }
-      const age = now - sparkTimers[i];
+      const startedAt = sparkTimers.at(i);
+      if (startedAt === undefined) {
+        spark.visible = false;
+        return;
+      }
+      const age = now - startedAt;
       if (age > SPARK_LIFE) {
         if (Math.random() < SPARK_CHANCE) {
           sparkTimers[i] = now;
@@ -106,11 +110,11 @@ export function PowerPole({
     <group {...props}>
       {/* ── Stepped base platform ─────────────────────────── */}
       <mesh position={[0, 0.02, 0]}>
-        <cylinderGeometry args={[0.20, 0.24, 0.04, 8]} />
+        <cylinderGeometry args={[0.2, 0.24, 0.04, 8]} />
         <meshStandardMaterial color={HULL_DARK} {...MAT} roughness={0.7} />
       </mesh>
       <mesh position={[0, 0.05, 0]}>
-        <cylinderGeometry args={[0.15, 0.20, 0.02, 8]} />
+        <cylinderGeometry args={[0.15, 0.2, 0.02, 8]} />
         <meshStandardMaterial color={HULL_MID} {...MAT} roughness={0.65} />
       </mesh>
       <mesh position={[0, 0.07, 0]}>
@@ -134,14 +138,14 @@ export function PowerPole({
         <meshStandardMaterial color={HULL_MID} {...MAT} roughness={0.5} />
       </mesh>
       {/* Structural ring — mid */}
-      <mesh position={[0, 0.50, 0]}>
+      <mesh position={[0, 0.5, 0]}>
         <cylinderGeometry args={[0.042, 0.046, 0.025, 8]} />
         <meshStandardMaterial color={HULL_MID} {...MAT} roughness={0.5} />
       </mesh>
 
       {/* ── Connector hub — wider collar at crossbeam junction */}
       <mesh position={[0, 0.82, 0]}>
-        <cylinderGeometry args={[0.06, 0.065, 0.10, 8]} />
+        <cylinderGeometry args={[0.06, 0.065, 0.1, 8]} />
         <meshStandardMaterial color={HULL_MID} {...MAT} roughness={0.55} />
       </mesh>
       {/* Orange accent band */}
@@ -167,7 +171,7 @@ export function PowerPole({
       </mesh>
 
       {/* ── Insulator stacks ──────────────────────────────── */}
-      {([-0.18, 0.18] as const).map((x, idx) => (
+      {([-0.18, 0.18] as const).map((x) => (
         <group key={x} position={[x, 0.89, 0]}>
           {/* Dark rubber base */}
           <mesh position={[0, 0, 0]}>
@@ -182,10 +186,11 @@ export function PowerPole({
           <mesh
             position={[0, 0.02, 0]}
             ref={(el) => {
-              if (el) ceramicRefs.current[idx] = el;
+              const insulatorIndex = x < 0 ? 0 : 1;
+              if (el) ceramicRefs.current[insulatorIndex] = el;
             }}
           >
-            <cylinderGeometry args={[0.026, 0.030, 0.024, 8]} />
+            <cylinderGeometry args={[0.026, 0.03, 0.024, 8]} />
             <meshStandardMaterial
               color={INSULATOR_CERAMIC}
               emissive={INSULATOR_CERAMIC}
@@ -195,7 +200,7 @@ export function PowerPole({
           </mesh>
           {/* Dark rubber top */}
           <mesh position={[0, 0.038, 0]}>
-            <cylinderGeometry args={[0.016, 0.020, 0.018, 8]} />
+            <cylinderGeometry args={[0.016, 0.02, 0.018, 8]} />
             <meshStandardMaterial
               color={INSULATOR_DARK}
               {...MAT}
@@ -203,13 +208,18 @@ export function PowerPole({
             />
           </mesh>
           {/* Sparks */}
-          {Array.from({ length: SPARKS_PER_INSULATOR }, (_, si) => (
+          {SPARK_KEYS.map((sparkKey, si) => (
             <mesh
-              key={si}
+              key={`${x}-${sparkKey}`}
               visible={false}
               position={[0, 0.02, 0]}
               ref={(el) => {
-                if (el) sparkRefs.current[idx * SPARKS_PER_INSULATOR + si] = el;
+                const insulatorIndex = x < 0 ? 0 : 1;
+                if (el) {
+                  sparkRefs.current[
+                    insulatorIndex * SPARKS_PER_INSULATOR + si
+                  ] = el;
+                }
               }}
             >
               <boxGeometry args={[0.008, 0.022, 0.004]} />

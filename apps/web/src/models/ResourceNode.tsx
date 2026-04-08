@@ -1,9 +1,6 @@
 import { memo } from "react";
-import {
-  DodecahedronGeometry,
-  SphereGeometry,
-} from "three";
-import { STONE_MAT, type ModelProps } from "./colors";
+import { DodecahedronGeometry, SphereGeometry } from "three";
+import { type ModelProps, STONE_MAT } from "./colors";
 
 /* ── Public types ──────────────────────────────────────── */
 
@@ -86,10 +83,32 @@ const impureLayout: PurityLayout = {
   groundRadius: 0.55,
   rocks: [
     { geo: "lg", pos: [0, 0.06, 0], scale: [1.3, 0.5, 1.2], shade: "rock" },
-    { geo: "md", pos: [0.22, 0.045, 0.10], scale: [1.1, 0.55, 1.0], rot: [0, 0.4, 0.05], shade: "rockDark" },
-    { geo: "sm", pos: [-0.18, 0.035, -0.14], scale: [1.0, 0.55, 1.05], rot: [0, -0.3, -0.05], shade: "rockLight" },
-    { geo: "pebble", pos: [0.32, 0.014, -0.10], scale: [1.3, 0.65, 1.1], shade: "rockDark" },
-    { geo: "pebble", pos: [-0.27, 0.012, 0.21], scale: [1.1, 0.7, 1.2], shade: "rock" },
+    {
+      geo: "md",
+      pos: [0.22, 0.045, 0.1],
+      scale: [1.1, 0.55, 1.0],
+      rot: [0, 0.4, 0.05],
+      shade: "rockDark",
+    },
+    {
+      geo: "sm",
+      pos: [-0.18, 0.035, -0.14],
+      scale: [1.0, 0.55, 1.05],
+      rot: [0, -0.3, -0.05],
+      shade: "rockLight",
+    },
+    {
+      geo: "pebble",
+      pos: [0.32, 0.014, -0.1],
+      scale: [1.3, 0.65, 1.1],
+      shade: "rockDark",
+    },
+    {
+      geo: "pebble",
+      pos: [-0.27, 0.012, 0.21],
+      scale: [1.1, 0.7, 1.2],
+      shade: "rock",
+    },
   ],
   ores: [],
 };
@@ -97,20 +116,69 @@ const impureLayout: PurityLayout = {
 /* ── Normal: medium deposit ────────────────────────────── */
 
 const normalLayout: PurityLayout = {
-  groundRadius: 0.70,
+  groundRadius: 0.7,
   rocks: [
     { geo: "lg", pos: [0, 0.08, 0], scale: [1.5, 0.55, 1.4], shade: "rock" },
-    { geo: "md", pos: [0.28, 0.06, 0.13], scale: [1.2, 0.55, 1.05], rot: [0, 0.5, 0.04], shade: "rockDark" },
-    { geo: "md", pos: [-0.24, 0.055, -0.10], scale: [1.1, 0.52, 1.15], rot: [0, -0.4, -0.03], shade: "rockLight" },
-    { geo: "sm", pos: [0.10, 0.045, -0.25], scale: [1.05, 0.55, 1.1], rot: [0, 0.2, 0], shade: "rock" },
-    { geo: "sm", pos: [-0.16, 0.04, 0.27], scale: [1.0, 0.52, 1.05], rot: [0, -0.6, 0.03], shade: "rockDark" },
-    { geo: "pebble", pos: [0.39, 0.014, 0.19], scale: [1.3, 0.65, 1.1], shade: "rockDark" },
-    { geo: "pebble", pos: [-0.35, 0.012, 0.25], scale: [1.1, 0.7, 1.2], shade: "rock" },
-    { geo: "pebble", pos: [0.25, 0.012, -0.33], scale: [1.0, 0.65, 1.1], shade: "rockLight" },
+    {
+      geo: "md",
+      pos: [0.28, 0.06, 0.13],
+      scale: [1.2, 0.55, 1.05],
+      rot: [0, 0.5, 0.04],
+      shade: "rockDark",
+    },
+    {
+      geo: "md",
+      pos: [-0.24, 0.055, -0.1],
+      scale: [1.1, 0.52, 1.15],
+      rot: [0, -0.4, -0.03],
+      shade: "rockLight",
+    },
+    {
+      geo: "sm",
+      pos: [0.1, 0.045, -0.25],
+      scale: [1.05, 0.55, 1.1],
+      rot: [0, 0.2, 0],
+      shade: "rock",
+    },
+    {
+      geo: "sm",
+      pos: [-0.16, 0.04, 0.27],
+      scale: [1.0, 0.52, 1.05],
+      rot: [0, -0.6, 0.03],
+      shade: "rockDark",
+    },
+    {
+      geo: "pebble",
+      pos: [0.39, 0.014, 0.19],
+      scale: [1.3, 0.65, 1.1],
+      shade: "rockDark",
+    },
+    {
+      geo: "pebble",
+      pos: [-0.35, 0.012, 0.25],
+      scale: [1.1, 0.7, 1.2],
+      shade: "rock",
+    },
+    {
+      geo: "pebble",
+      pos: [0.25, 0.012, -0.33],
+      scale: [1.0, 0.65, 1.1],
+      shade: "rockLight",
+    },
   ],
   ores: [
-    { kind: "veinSm", pos: [0.06, 0.21, 0.06], scale: [1.1, 0.55, 0.8], rot: [0.2, 0.3, 0.6] },
-    { kind: "veinSm", pos: [-0.12, 0.19, -0.08], scale: [0.9, 0.5, 0.75], rot: [0.5, 0.8, 0.2] },
+    {
+      kind: "veinSm",
+      pos: [0.06, 0.21, 0.06],
+      scale: [1.1, 0.55, 0.8],
+      rot: [0.2, 0.3, 0.6],
+    },
+    {
+      kind: "veinSm",
+      pos: [-0.12, 0.19, -0.08],
+      scale: [0.9, 0.5, 0.75],
+      rot: [0.5, 0.8, 0.2],
+    },
   ],
 };
 
@@ -119,26 +187,118 @@ const normalLayout: PurityLayout = {
 const pureLayout: PurityLayout = {
   groundRadius: 0.85,
   rocks: [
-    { geo: "lg", pos: [0, 0.10, 0], scale: [1.6, 0.6, 1.5], shade: "rock" },
-    { geo: "lg", pos: [0.31, 0.075, 0.16], scale: [1.3, 0.55, 1.15], rot: [0, 0.5, 0.03], shade: "rockDark" },
-    { geo: "md", pos: [-0.28, 0.065, -0.13], scale: [1.3, 0.55, 1.2], rot: [0, -0.3, -0.04], shade: "rockLight" },
-    { geo: "md", pos: [0.13, 0.06, -0.30], scale: [1.15, 0.55, 1.1], rot: [0, 0.2, 0], shade: "rock" },
-    { geo: "md", pos: [-0.16, 0.055, 0.33], scale: [1.1, 0.52, 1.05], rot: [0, -0.5, 0.03], shade: "rockDark" },
-    { geo: "sm", pos: [0.06, 0.14, -0.06], scale: [1.0, 0.55, 0.95], rot: [0, 0.7, 0], shade: "rockLight" },
-    { geo: "sm", pos: [0.37, 0.04, -0.19], scale: [0.95, 0.52, 1.0], rot: [0, 0.4, 0.05], shade: "rock" },
-    { geo: "sm", pos: [-0.34, 0.04, 0.25], scale: [0.9, 0.52, 0.95], rot: [0, -0.6, -0.04], shade: "rockDark" },
-    { geo: "pebble", pos: [0.47, 0.015, 0.22], scale: [1.4, 0.65, 1.1], shade: "rockDark" },
-    { geo: "pebble", pos: [-0.44, 0.013, 0.31], scale: [1.2, 0.7, 1.2], shade: "rock" },
-    { geo: "pebble", pos: [0.31, 0.013, -0.42], scale: [1.1, 0.65, 1.0], shade: "rockLight" },
-    { geo: "pebble", pos: [-0.28, 0.012, -0.37], scale: [1.0, 0.65, 1.1], shade: "rockDark" },
+    { geo: "lg", pos: [0, 0.1, 0], scale: [1.6, 0.6, 1.5], shade: "rock" },
+    {
+      geo: "lg",
+      pos: [0.31, 0.075, 0.16],
+      scale: [1.3, 0.55, 1.15],
+      rot: [0, 0.5, 0.03],
+      shade: "rockDark",
+    },
+    {
+      geo: "md",
+      pos: [-0.28, 0.065, -0.13],
+      scale: [1.3, 0.55, 1.2],
+      rot: [0, -0.3, -0.04],
+      shade: "rockLight",
+    },
+    {
+      geo: "md",
+      pos: [0.13, 0.06, -0.3],
+      scale: [1.15, 0.55, 1.1],
+      rot: [0, 0.2, 0],
+      shade: "rock",
+    },
+    {
+      geo: "md",
+      pos: [-0.16, 0.055, 0.33],
+      scale: [1.1, 0.52, 1.05],
+      rot: [0, -0.5, 0.03],
+      shade: "rockDark",
+    },
+    {
+      geo: "sm",
+      pos: [0.06, 0.14, -0.06],
+      scale: [1.0, 0.55, 0.95],
+      rot: [0, 0.7, 0],
+      shade: "rockLight",
+    },
+    {
+      geo: "sm",
+      pos: [0.37, 0.04, -0.19],
+      scale: [0.95, 0.52, 1.0],
+      rot: [0, 0.4, 0.05],
+      shade: "rock",
+    },
+    {
+      geo: "sm",
+      pos: [-0.34, 0.04, 0.25],
+      scale: [0.9, 0.52, 0.95],
+      rot: [0, -0.6, -0.04],
+      shade: "rockDark",
+    },
+    {
+      geo: "pebble",
+      pos: [0.47, 0.015, 0.22],
+      scale: [1.4, 0.65, 1.1],
+      shade: "rockDark",
+    },
+    {
+      geo: "pebble",
+      pos: [-0.44, 0.013, 0.31],
+      scale: [1.2, 0.7, 1.2],
+      shade: "rock",
+    },
+    {
+      geo: "pebble",
+      pos: [0.31, 0.013, -0.42],
+      scale: [1.1, 0.65, 1.0],
+      shade: "rockLight",
+    },
+    {
+      geo: "pebble",
+      pos: [-0.28, 0.012, -0.37],
+      scale: [1.0, 0.65, 1.1],
+      shade: "rockDark",
+    },
   ],
   ores: [
-    { kind: "vein", pos: [0.04, 0.22, 0.04], scale: [1.2, 0.6, 0.9], rot: [0.2, 0.3, 0.6] },
-    { kind: "vein", pos: [0.22, 0.16, 0.12], scale: [1.1, 0.55, 0.85], rot: [0.3, 0.6, 0.2] },
-    { kind: "veinSm", pos: [-0.14, 0.15, -0.06], scale: [1.0, 0.5, 0.8], rot: [0.5, 0.8, 0.1] },
-    { kind: "veinSm", pos: [-0.06, 0.14, 0.24], scale: [0.95, 0.5, 0.75], rot: [0.4, 1.0, 0.3] },
-    { kind: "chunk", pos: [0.10, 0.24, -0.04], scale: [1.2, 0.65, 1.0], rot: [0.15, 0.2, -0.1] },
-    { kind: "chunk", pos: [-0.07, 0.21, 0.15], scale: [1.0, 0.6, 0.9], rot: [-0.12, 0.5, 0.15] },
+    {
+      kind: "vein",
+      pos: [0.04, 0.22, 0.04],
+      scale: [1.2, 0.6, 0.9],
+      rot: [0.2, 0.3, 0.6],
+    },
+    {
+      kind: "vein",
+      pos: [0.22, 0.16, 0.12],
+      scale: [1.1, 0.55, 0.85],
+      rot: [0.3, 0.6, 0.2],
+    },
+    {
+      kind: "veinSm",
+      pos: [-0.14, 0.15, -0.06],
+      scale: [1.0, 0.5, 0.8],
+      rot: [0.5, 0.8, 0.1],
+    },
+    {
+      kind: "veinSm",
+      pos: [-0.06, 0.14, 0.24],
+      scale: [0.95, 0.5, 0.75],
+      rot: [0.4, 1.0, 0.3],
+    },
+    {
+      kind: "chunk",
+      pos: [0.1, 0.24, -0.04],
+      scale: [1.2, 0.65, 1.0],
+      rot: [0.15, 0.2, -0.1],
+    },
+    {
+      kind: "chunk",
+      pos: [-0.07, 0.21, 0.15],
+      scale: [1.0, 0.6, 0.9],
+      rot: [-0.12, 0.5, 0.15],
+    },
   ],
 };
 
@@ -149,7 +309,7 @@ const pureLayout: PurityLayout = {
  * Values here place balls ≈ at each tier's rock peak.
  */
 export const NODE_MINER_OFFSET: Record<PurityTier, number> = {
-  impure: 0.20,
+  impure: 0.2,
   normal: 0.23,
   pure: 0.27,
 };
@@ -163,7 +323,11 @@ const LAYOUTS: Record<PurityTier, PurityLayout> = {
 /* ── Ore material presets ──────────────────────────────── */
 
 const ORE_MAT = { roughness: 0.35, metalness: 0.15 } as const;
-const CHUNK_MAT = { roughness: 0.3, metalness: 0.2, flatShading: true } as const;
+const CHUNK_MAT = {
+  roughness: 0.3,
+  metalness: 0.2,
+  flatShading: true,
+} as const;
 
 /* ── Component ─────────────────────────────────────────── */
 
@@ -200,9 +364,9 @@ export const ResourceNode = memo(function ResourceNode({
       </mesh>
 
       {/* Rock formations */}
-      {layout.rocks.map((r, i) => (
+      {layout.rocks.map((r) => (
         <mesh
-          key={`r-${i}`}
+          key={`r-${r.geo}-${r.pos.join("-")}`}
           geometry={GEO_MAP[r.geo]}
           position={r.pos}
           scale={r.scale}
@@ -213,10 +377,10 @@ export const ResourceNode = memo(function ResourceNode({
       ))}
 
       {/* Ore veins and chunks */}
-      {layout.ores.map((o, i) =>
+      {layout.ores.map((o) =>
         o.kind === "chunk" ? (
           <mesh
-            key={`o-${i}`}
+            key={`o-${o.kind}-${o.pos.join("-")}`}
             geometry={geoOreChunk}
             position={o.pos}
             scale={o.scale}
@@ -231,7 +395,7 @@ export const ResourceNode = memo(function ResourceNode({
           </mesh>
         ) : (
           <mesh
-            key={`o-${i}`}
+            key={`o-${o.kind}-${o.pos.join("-")}`}
             geometry={o.kind === "vein" ? geoOre : geoOreSm}
             position={o.pos}
             scale={o.scale}

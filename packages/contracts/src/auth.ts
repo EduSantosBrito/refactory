@@ -1,5 +1,9 @@
 import { Schema, ServiceMap } from "effect";
-import { HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/unstable/httpapi";
+import {
+  HttpApiMiddleware,
+  HttpApiSecurity,
+  OpenApi,
+} from "effect/unstable/httpapi";
 
 export const ActorContext = Schema.Struct({
   displayName: Schema.String,
@@ -8,9 +12,14 @@ export const ActorContext = Schema.Struct({
 
 export type ActorContext = Schema.Schema.Type<typeof ActorContext>;
 
-export class CurrentActor extends ServiceMap.Service<CurrentActor, ActorContext>()("refactory/CurrentActor") {}
+export class CurrentActor extends ServiceMap.Service<
+  CurrentActor,
+  ActorContext
+>()("refactory/CurrentActor") {}
 
-export class ActorAuthError extends Schema.ErrorClass<ActorAuthError>("refactory/ActorAuthError")(
+export class ActorAuthError extends Schema.ErrorClass<ActorAuthError>(
+  "refactory/ActorAuthError",
+)(
   {
     _tag: Schema.tag("ActorAuthError"),
     message: Schema.String,
@@ -31,9 +40,12 @@ const ActorSignatureSecurity = HttpApiSecurity.apiKey({
   ),
 );
 
-export class ActorAuth extends HttpApiMiddleware.Service<ActorAuth, {
-  readonly provides: CurrentActor;
-}>()("refactory/ActorAuth", {
+export class ActorAuth extends HttpApiMiddleware.Service<
+  ActorAuth,
+  {
+    readonly provides: CurrentActor;
+  }
+>()("refactory/ActorAuth", {
   error: ActorAuthError,
   requiredForClient: true,
   security: {

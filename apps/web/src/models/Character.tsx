@@ -1,8 +1,15 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { Billboard, Html, Text, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { AnimationMixer, Box3, LoopOnce, MathUtils, Mesh, Vector3 } from "three";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import type { AnimationAction, Group, Object3D } from "three";
+import {
+  AnimationMixer,
+  Box3,
+  LoopOnce,
+  MathUtils,
+  Mesh,
+  Vector3,
+} from "three";
 import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.js";
 
 export type CharacterName = "Barbara" | "Fernando" | "Finn" | "Rae";
@@ -35,7 +42,7 @@ function enableShadows(object: Object3D) {
 
 interface CharacterProps {
   name: CharacterName;
-  animation?: string | string[];
+  animation?: string | string[] | null;
   animationSpeed?: number;
   targetHeight?: number;
   roam?: boolean;
@@ -104,7 +111,7 @@ export function Character({
 
   // Animation
   useEffect(() => {
-    if (!animation || animations.length === 0) return;
+    if (animation == null || animations.length === 0) return;
 
     const mixer = new AnimationMixer(actor);
     mixerRef.current = mixer;
@@ -217,7 +224,11 @@ export function Character({
           {/* Color dot */}
           <mesh position={[-(label.length * 0.038 + 0.06), 0.008, 0.001]}>
             <circleGeometry args={[0.028, 16]} />
-            <meshBasicMaterial color={labelColor ?? "#ffffff"} depthWrite={false} transparent />
+            <meshBasicMaterial
+              color={labelColor ?? "#ffffff"}
+              depthWrite={false}
+              transparent
+            />
           </mesh>
           <Text
             fontSize={0.12}

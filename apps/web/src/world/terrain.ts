@@ -109,13 +109,13 @@ export function heightAt(x: number, z: number): number {
   const bumps = fbm(x * 0.06, z * 0.06, 2, 2.0, 0.5, 200);
 
   // Combine layers: broad dominates, mid adds shape, bumps add texture
-  const combined = broad * 0.55 + mid * 0.30 + bumps * 0.15;
+  const combined = broad * 0.55 + mid * 0.3 + bumps * 0.15;
 
   // The combined noise practically ranges about -0.45..0.50 over a 200-unit world.
   // Remap that to 0..1, then apply a gentle power curve for flatter valleys.
   let h01 = (combined + 0.45) / 0.95; // maps -0.45..0.50 to ~0..1
   h01 = Math.max(0, Math.min(1, h01));
-  const h = Math.pow(h01, 1.3) * MAX_HEIGHT;
+  const h = h01 ** 1.3 * MAX_HEIGHT;
 
   // Flatten near origin for spawn area
   const dist = Math.sqrt(x * x + z * z);
@@ -134,7 +134,13 @@ export function heightAt(x: number, z: number): number {
    3. BIOME SYSTEM
    ================================================================ */
 
-export type Biome = "forest" | "grassland" | "rocky" | "desert" | "swamp" | "hills";
+export type Biome =
+  | "forest"
+  | "grassland"
+  | "rocky"
+  | "desert"
+  | "swamp"
+  | "hills";
 
 /**
  * Returns a "moisture" value (0-1) at a world position.
@@ -184,7 +190,7 @@ export function biomeAt(x: number, z: number): Biome {
   if (h > 4.0) return "hills";
 
   // High moisture — forest and swamp
-  if (moisture > 0.60) {
+  if (moisture > 0.6) {
     if (temp < 0.42) return "swamp";
     return "forest";
   }
@@ -211,11 +217,11 @@ export function biomeAt(x: number, z: number): Biome {
    ================================================================ */
 
 const DENSITY_MAP: Record<Biome, number> = {
-  forest: 0.60,
+  forest: 0.6,
   grassland: 0.45,
-  rocky: 0.30,
+  rocky: 0.3,
   desert: 0.15,
-  swamp: 0.50,
+  swamp: 0.5,
   hills: 0.35,
 };
 
@@ -257,12 +263,12 @@ function lerpColor(a: string, b: string, t: number): string {
  * Base colors for each biome (two shades for within-biome variation).
  */
 const BIOME_COLORS: Record<Biome, [string, string]> = {
-  forest: ["#3d7a35", "#4a8a3e"],     // rich green
-  grassland: ["#5d9a45", "#6daa55"],   // light green
-  rocky: ["#7a7060", "#8a806a"],       // grey-brown
-  desert: ["#c2a862", "#d4ba72"],      // sandy brown
-  swamp: ["#3a5a30", "#4a6638"],       // dark olive
-  hills: ["#5a7a42", "#6a8a4c"],       // green-brown
+  forest: ["#3d7a35", "#4a8a3e"], // rich green
+  grassland: ["#5d9a45", "#6daa55"], // light green
+  rocky: ["#7a7060", "#8a806a"], // grey-brown
+  desert: ["#c2a862", "#d4ba72"], // sandy brown
+  swamp: ["#3a5a30", "#4a6638"], // dark olive
+  hills: ["#5a7a42", "#6a8a4c"], // green-brown
 };
 
 /**

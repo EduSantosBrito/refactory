@@ -1,28 +1,32 @@
-import { CylinderGeometry } from "three";
 import { Html } from "@react-three/drei";
-import { COLORS, MAT, type ModelProps } from "../models/colors";
+import { CylinderGeometry } from "three";
 import {
-  OakTree,
-  DetailedTree,
-  PineTree,
-  FlatTopTree,
-  DeadTree,
-  Flower,
   Bush,
+  DeadTree,
+  DetailedTree,
+  FlatTopTree,
+  Flower,
   GrassClump,
+  Log,
+  Mushroom,
+  OakTree,
+  PineTree,
   Rock,
   RockFormation,
   Stump,
-  Log,
-  Mushroom,
 } from "../models";
+import { COLORS, MAT, type ModelProps } from "../models/colors";
 
 /* ── Sized wrappers ───────────────────────────────────────── */
 
 const OakSm: React.FC<ModelProps> = (p) => <OakTree size="sm" {...p} />;
 const OakLg: React.FC<ModelProps> = (p) => <OakTree size="lg" {...p} />;
-const DetailedSm: React.FC<ModelProps> = (p) => <DetailedTree size="sm" {...p} />;
-const DetailedLg: React.FC<ModelProps> = (p) => <DetailedTree size="lg" {...p} />;
+const DetailedSm: React.FC<ModelProps> = (p) => (
+  <DetailedTree size="sm" {...p} />
+);
+const DetailedLg: React.FC<ModelProps> = (p) => (
+  <DetailedTree size="lg" {...p} />
+);
 const PineSm: React.FC<ModelProps> = (p) => <PineTree size="sm" {...p} />;
 const PineLg: React.FC<ModelProps> = (p) => <PineTree size="lg" {...p} />;
 const FlatTopSm: React.FC<ModelProps> = (p) => <FlatTopTree size="sm" {...p} />;
@@ -35,11 +39,19 @@ const RockSm: React.FC<ModelProps> = (p) => <Rock size="sm" {...p} />;
 const RockLg: React.FC<ModelProps> = (p) => <Rock size="lg" {...p} />;
 const StumpSm: React.FC<ModelProps> = (p) => <Stump size="sm" {...p} />;
 const StumpLg: React.FC<ModelProps> = (p) => <Stump size="lg" {...p} />;
-const FormationSm: React.FC<ModelProps> = (p) => <RockFormation size="sm" {...p} />;
-const FormationLg: React.FC<ModelProps> = (p) => <RockFormation size="lg" {...p} />;
-const FlowerPurple: React.FC<ModelProps> = (p) => <Flower color="purple" {...p} />;
+const FormationSm: React.FC<ModelProps> = (p) => (
+  <RockFormation size="sm" {...p} />
+);
+const FormationLg: React.FC<ModelProps> = (p) => (
+  <RockFormation size="lg" {...p} />
+);
+const FlowerPurple: React.FC<ModelProps> = (p) => (
+  <Flower color="purple" {...p} />
+);
 const FlowerRed: React.FC<ModelProps> = (p) => <Flower color="red" {...p} />;
-const FlowerYellow: React.FC<ModelProps> = (p) => <Flower color="yellow" {...p} />;
+const FlowerYellow: React.FC<ModelProps> = (p) => (
+  <Flower color="yellow" {...p} />
+);
 
 /* ── Types ────────────────────────────────────────────────── */
 
@@ -163,10 +175,18 @@ function Slot({ x, z, entry }: { x: number; z: number; entry: ShowcaseEntry }) {
   return (
     <group position={[x, 0, z]}>
       <mesh position={[0, 0.05, 0]} geometry={pedestalBase}>
-        <meshStandardMaterial color={COLORS.pedestal} {...MAT} roughness={0.65} />
+        <meshStandardMaterial
+          color={COLORS.pedestal}
+          {...MAT}
+          roughness={0.65}
+        />
       </mesh>
       <mesh position={[0, 0.1, 0]} geometry={pedestalRing}>
-        <meshStandardMaterial color={COLORS.pedestalEdge} {...MAT} roughness={0.6} />
+        <meshStandardMaterial
+          color={COLORS.pedestalEdge}
+          {...MAT}
+          roughness={0.6}
+        />
       </mesh>
       <Html position={[0, -0.1, 0.95]} center style={labelStyle}>
         {entry.name}
@@ -185,7 +205,11 @@ function NatureDiorama() {
     <group>
       {/* Island base */}
       <mesh position={[0, 0.1, 0]} geometry={dioramaBase}>
-        <meshStandardMaterial color={COLORS.pedestal} {...MAT} roughness={0.75} />
+        <meshStandardMaterial
+          color={COLORS.pedestal}
+          {...MAT}
+          roughness={0.75}
+        />
       </mesh>
       <mesh position={[0, 0.21, 0]} geometry={dioramaTop}>
         <meshStandardMaterial color={COLORS.groundLight} roughness={0.85} />

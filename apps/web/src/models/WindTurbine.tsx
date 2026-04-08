@@ -1,9 +1,9 @@
-import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
+import { useRef } from "react";
 import type { Group } from "three";
 import { MAT, type ModelProps } from "./colors";
-import { StatusPole } from "./StatusPole";
 import type { StatusPoleStatus } from "./StatusPole";
+import { StatusPole } from "./StatusPole";
 
 const FAN_SPEED = 1.8;
 const BLADE_COUNT = 3;
@@ -113,10 +113,14 @@ export function WindTurbine({
           {Array.from({ length: BLADE_COUNT }, (_, index) => {
             const angle = (index / BLADE_COUNT) * Math.PI * 2;
             return (
-              <group key={index} rotation={[angle, 0, 0]}>
+              <group key={`blade-${angle.toFixed(3)}`} rotation={[angle, 0, 0]}>
                 <mesh position={[0, 0.25, 0]}>
                   <boxGeometry args={[0.035, 0.44, 0.065]} />
-                  <meshStandardMaterial color={BLADE_COLOR} {...MAT} roughness={0.45} />
+                  <meshStandardMaterial
+                    color={BLADE_COLOR}
+                    {...MAT}
+                    roughness={0.45}
+                  />
                 </mesh>
               </group>
             );

@@ -1,16 +1,45 @@
-import { Layer, ServiceMap } from "effect";
+import {
+  Config,
+  ConfigProvider,
+  Effect,
+  Layer,
+  Option,
+  Schema,
+  ServiceMap,
+} from "effect";
 
 const parsePort = (value: string | undefined, fallback: number) => {
-  if (value === undefined) {
-    return fallback;
-  }
-
-  const candidate = Number(value);
-
-  return Number.isInteger(candidate) && candidate > 0 ? candidate : fallback;
+  return Option.fromUndefinedOr(value).pipe(
+    Option.map((candidate) => Number(candidate)),
+    Option.filter(
+      (candidate: number) => Number.isInteger(candidate) && candidate > 0,
+    ),
+    Option.getOrElse(() => fallback),
+  );
 };
 
-const defaultDatabasePath = new URL("../refactory.sqlite", import.meta.url).pathname;
+const defaultDatabasePath = new URL("../refactory.sqlite", import.meta.url)
+  .pathname;
+
+const appConfigConfig = Config.all({
+  apiName: Config.succeed("refactory-api"),
+  databasePath: Config.schema(Schema.String, "API_DATABASE_PATH").pipe(
+    Config.withDefault(defaultDatabasePath),
+  ),
+  port: Config.all({
+    apiPort: Config.option(Config.schema(Schema.String, "API_PORT")),
+    port: Config.option(Config.schema(Schema.String, "PORT")),
+  }).pipe(
+    Config.map(({ apiPort, port }) =>
+      parsePort(
+        Option.getOrUndefined(apiPort) ?? Option.getOrUndefined(port),
+        3001,
+      ),
+    ),
+  ),
+  rulesetVersion: Config.succeed("gpy7-v1"),
+  worldSchemaVersion: Config.succeed(1),
+});
 
 export class AppConfig extends ServiceMap.Service<
   AppConfig,
@@ -22,11 +51,14 @@ export class AppConfig extends ServiceMap.Service<
     readonly worldSchemaVersion: number;
   }
 >()("refactory/AppConfig") {
-  static readonly Live = Layer.succeed(AppConfig, {
-    apiName: "refactory-api",
-    databasePath: Bun.env.API_DATABASE_PATH ?? defaultDatabasePath,
-    port: parsePort(Bun.env.API_PORT ?? Bun.env.PORT, 3001),
-    rulesetVersion: "gpy7-v1",
-    worldSchemaVersion: 1,
-  });
+  static readonly layer = Layer.effect(
+    AppConfig,
+    Effect.flatMap(ConfigProvider.ConfigProvider.asEffect(), (provider) =>
+      appConfigConfig.parse(provider),
+    ),
+  );
+
+  static readonly Live = AppConfig.layer.pipe(
+    Layer.provide(ConfigProvider.layer(ConfigProvider.fromEnv())),
+  );
 }

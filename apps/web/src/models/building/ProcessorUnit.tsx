@@ -1,15 +1,21 @@
-import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { MeshStandardMaterial } from "three";
+import { useRef } from "react";
 import type { Group, Mesh } from "three";
-import { B, M } from "./palette";
+import { MeshStandardMaterial } from "three";
+import { Antenna } from "../Antenna";
+import { PortDock } from "../belt/PortDock";
+import { PROCESSOR_PORTS } from "../belt/ports";
 import type { ModelProps } from "../colors";
 import { COLORS } from "../colors";
 import { StatusPole, type StatusPoleStatus } from "../StatusPole";
-import { Antenna } from "../Antenna";
+import { B, M } from "./palette";
 
 /* ── Exhaust smoke — lighter/smaller than furnace smoke ── */
 const SMOKE_COUNT = 8;
+const SMOKE_KEYS = Array.from(
+  { length: SMOKE_COUNT },
+  (_, index) => `sm-${index}`,
+);
 
 type PuffState = { driftX: number; driftZ: number; riseSpeed: number };
 
@@ -21,18 +27,24 @@ function ExhaustSmoke() {
 
   useFrame(({ clock }, delta) => {
     for (let i = 0; i < refs.current.length; i++) {
-      const smoke = refs.current[i]!;
+      const smoke = refs.current[i];
+      if (!smoke) continue;
       if (!smoke.visible) continue;
       const p = puffs.current.get(i);
       if (!p) continue;
 
-      smoke.scale.setScalar(smoke.scale.x + delta * 0.10);
+      smoke.scale.setScalar(smoke.scale.x + delta * 0.1);
       smoke.position.y += delta * p.riseSpeed;
       smoke.position.x += delta * p.driftX;
-      smoke.position.z += delta * p.driftZ + Math.sin(clock.elapsedTime * 0.6 + i) * delta * 0.003;
+      smoke.position.z +=
+        delta * p.driftZ +
+        Math.sin(clock.elapsedTime * 0.6 + i) * delta * 0.003;
 
       if (smoke.material instanceof MeshStandardMaterial) {
-        smoke.material.opacity = Math.max(0, smoke.material.opacity - delta * 0.09);
+        smoke.material.opacity = Math.max(
+          0,
+          smoke.material.opacity - delta * 0.09,
+        );
         if (smoke.material.opacity <= 0) {
           smoke.visible = false;
         }
@@ -49,9 +61,9 @@ function ExhaustSmoke() {
         smoke.scale.setScalar(0.6 + Math.random() * 0.4);
         smoke.position.set(Math.cos(angle) * r, 0, Math.sin(angle) * r);
         puffs.current.set(idx, {
-          driftX: (Math.random() - 0.3) * 0.010,
+          driftX: (Math.random() - 0.3) * 0.01,
           driftZ: (Math.random() - 0.5) * 0.007,
-          riseSpeed: 0.020 + Math.random() * 0.015,
+          riseSpeed: 0.02 + Math.random() * 0.015,
         });
         if (smoke.material instanceof MeshStandardMaterial) {
           smoke.material.opacity = 0.25 + Math.random() * 0.12;
@@ -64,9 +76,9 @@ function ExhaustSmoke() {
 
   return (
     <group>
-      {Array.from({ length: SMOKE_COUNT }, (_, i) => (
+      {SMOKE_KEYS.map((smokeKey, i) => (
         <mesh
-          key={`sm-${i}`}
+          key={smokeKey}
           ref={(el) => {
             if (el) refs.current[i] = el;
           }}
@@ -124,7 +136,7 @@ const COL_X = 0.17;
 const COL_Z = 0.12;
 const COL_R = 0.028;
 
-const DECK_W = 0.50;
+const DECK_W = 0.5;
 const DECK_D = 0.38;
 
 type ProcessorProps = ModelProps & {
@@ -149,7 +161,10 @@ export function ProcessorUnit({ status = "green", ...props }: ProcessorProps) {
           (ref.current.material as MeshStandardMaterial).emissiveIntensity = 0;
         }
       }
-      if (armRef.current) { armRef.current.rotation.y = 0; armRef.current.rotation.z = 0; }
+      if (armRef.current) {
+        armRef.current.rotation.y = 0;
+        armRef.current.rotation.z = 0;
+      }
       if (pressRef.current) pressRef.current.position.y = 0;
       return;
     }
@@ -183,10 +198,10 @@ export function ProcessorUnit({ status = "green", ...props }: ProcessorProps) {
       // 0.42–0.75  swing back down & outward
       // 0.75–1.00  rest
       const ARM_SWING = Math.PI * 0.55; // ~100° horizontal sweep toward center
-      const ARM_LIFT = -0.5;            // ~29° upward lift (negative because arm extends in -X)
+      const ARM_LIFT = -0.5; // ~29° upward lift (negative because arm extends in -X)
       let armProgress = 0;
-      if (phase < 0.30) {
-        armProgress = ss(phase / 0.30);
+      if (phase < 0.3) {
+        armProgress = ss(phase / 0.3);
       } else if (phase < 0.42) {
         armProgress = 1;
       } else if (phase < 0.75) {
@@ -203,17 +218,20 @@ export function ProcessorUnit({ status = "green", ...props }: ProcessorProps) {
       // 0.80–0.92  rise back up
       const PRESS_TRAVEL = -0.09; // nearly full gap between deck and platform
       let pressY = 0;
-      if (phase >= 0.60 && phase < 0.72) {
-        pressY = ss((phase - 0.60) / 0.12) * PRESS_TRAVEL;
-      } else if (phase >= 0.72 && phase < 0.80) {
+      if (phase >= 0.6 && phase < 0.72) {
+        pressY = ss((phase - 0.6) / 0.12) * PRESS_TRAVEL;
+      } else if (phase >= 0.72 && phase < 0.8) {
         pressY = PRESS_TRAVEL;
-      } else if (phase >= 0.80 && phase < 0.92) {
-        pressY = (1 - ss((phase - 0.80) / 0.12)) * PRESS_TRAVEL;
+      } else if (phase >= 0.8 && phase < 0.92) {
+        pressY = (1 - ss((phase - 0.8) / 0.12)) * PRESS_TRAVEL;
       }
       if (pressRef.current) pressRef.current.position.y = pressY;
     } else {
       // Yellow — mechanical parts at rest
-      if (armRef.current) { armRef.current.rotation.y = 0; armRef.current.rotation.z = 0; }
+      if (armRef.current) {
+        armRef.current.rotation.y = 0;
+        armRef.current.rotation.z = 0;
+      }
       if (pressRef.current) pressRef.current.position.y = 0;
     }
   });
@@ -225,7 +243,7 @@ export function ProcessorUnit({ status = "green", ...props }: ProcessorProps) {
           ═══════════════════════════════════════════ */}
       <group position={[0, FOUND_Y, 0]}>
         <mesh>
-          <cylinderGeometry args={[0.30, 0.33, FOUND_H, SIDES]} />
+          <cylinderGeometry args={[0.3, 0.33, FOUND_H, SIDES]} />
           <meshStandardMaterial color={B.mid} {...M} roughness={0.6} />
         </mesh>
         <mesh position={[0, -FOUND_H / 2 + 0.005, 0]}>
@@ -254,7 +272,10 @@ export function ProcessorUnit({ status = "green", ...props }: ProcessorProps) {
         </mesh>
         {/* Recessed side panels — left and right */}
         {[-1, 1].map((side) => (
-          <mesh key={`sp-${side}`} position={[side * (PLAT_W / 2 + 0.002), 0, 0.04]}>
+          <mesh
+            key={`sp-${side}`}
+            position={[side * (PLAT_W / 2 + 0.002), 0, 0.04]}
+          >
             <boxGeometry args={[0.012, 0.055, 0.14]} />
             <meshStandardMaterial color={B.dark} {...M} roughness={0.65} />
           </mesh>
@@ -271,8 +292,8 @@ export function ProcessorUnit({ status = "green", ...props }: ProcessorProps) {
           [COL_X, -COL_Z],
           [-COL_X, -COL_Z],
         ] as const
-      ).map(([cx, cz], i) => (
-        <group key={`col-${i}`} position={[cx, COL_Y, cz]}>
+      ).map(([cx, cz]) => (
+        <group key={`col-${cx}-${cz}`} position={[cx, COL_Y, cz]}>
           {/* Main column shaft */}
           <mesh>
             <cylinderGeometry args={[COL_R, COL_R + 0.005, COL_H, 6]} />
@@ -285,7 +306,7 @@ export function ProcessorUnit({ status = "green", ...props }: ProcessorProps) {
           </mesh>
           {/* Upper piston ring */}
           <mesh position={[0, COL_H / 2 - 0.02, 0]}>
-            <cylinderGeometry args={[COL_R + 0.010, COL_R + 0.010, 0.012, 6]} />
+            <cylinderGeometry args={[COL_R + 0.01, COL_R + 0.01, 0.012, 6]} />
             <meshStandardMaterial color={B.dark} {...M} roughness={0.6} />
           </mesh>
         </group>
@@ -336,7 +357,7 @@ export function ProcessorUnit({ status = "green", ...props }: ProcessorProps) {
       <group position={[0, PLAT_Y + 0.01, PLAT_D / 2 + 0.01]}>
         {/* Door frame */}
         <mesh>
-          <boxGeometry args={[0.18, 0.10, 0.025]} />
+          <boxGeometry args={[0.18, 0.1, 0.025]} />
           <meshStandardMaterial color={B.dark} {...M} roughness={0.65} />
         </mesh>
         {/* Recessed tunnel glow */}
@@ -369,7 +390,10 @@ export function ProcessorUnit({ status = "green", ...props }: ProcessorProps) {
       {/* ═══════════════════════════════════════════
           6. OUTPUT ARM — side-mounted mechanical linkage (-X)
           ═══════════════════════════════════════════ */}
-      <group ref={armRef} position={[-PLAT_W / 2 - 0.02, PLAT_Y + PLAT_H / 2 + 0.02, 0]}>
+      <group
+        ref={armRef}
+        position={[-PLAT_W / 2 - 0.02, PLAT_Y + PLAT_H / 2 + 0.02, 0]}
+      >
         {/* Shoulder bracket */}
         <mesh>
           <boxGeometry args={[0.04, 0.06, 0.08]} />
@@ -377,11 +401,11 @@ export function ProcessorUnit({ status = "green", ...props }: ProcessorProps) {
         </mesh>
         {/* Arm segment 1 */}
         <mesh position={[-0.06, 0.01, 0]} rotation={[0, 0, -0.2]}>
-          <boxGeometry args={[0.10, 0.03, 0.05]} />
+          <boxGeometry args={[0.1, 0.03, 0.05]} />
           <meshStandardMaterial color={B.mid} {...M} roughness={0.55} />
         </mesh>
         {/* Arm joint (accent pivot) */}
-        <mesh position={[-0.10, 0, 0]}>
+        <mesh position={[-0.1, 0, 0]}>
           <cylinderGeometry args={[0.018, 0.018, 0.06, 6]} />
           <meshStandardMaterial color={B.accent} {...M} roughness={0.5} />
         </mesh>
@@ -425,7 +449,7 @@ export function ProcessorUnit({ status = "green", ...props }: ProcessorProps) {
         </mesh>
         {/* Pipe */}
         <mesh position={[0, 0.09, 0]}>
-          <cylinderGeometry args={[0.025, 0.030, 0.14, SIDES]} />
+          <cylinderGeometry args={[0.025, 0.03, 0.14, SIDES]} />
           <meshStandardMaterial color={B.dark} {...M} roughness={0.6} />
         </mesh>
         {/* Heat band */}
@@ -483,9 +507,16 @@ export function ProcessorUnit({ status = "green", ...props }: ProcessorProps) {
       />
       <Antenna
         position={[-PLAT_W / 2 + 0.06, BODY_TOP + 0.005, -PLAT_D / 2 + 0.04]}
-        scale={0.20}
+        scale={0.2}
         speed={0.5}
       />
+
+      {/* ═══════════════════════════════════════════
+          10. PORT DOCKS — west input, east output
+          ═══════════════════════════════════════════ */}
+      {[...PROCESSOR_PORTS.inputs, ...PROCESSOR_PORTS.outputs].map((port) => (
+        <PortDock key={port.id} port={port} />
+      ))}
     </group>
   );
 }

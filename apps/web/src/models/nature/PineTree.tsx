@@ -1,8 +1,14 @@
-import { memo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { ConeGeometry, CylinderGeometry } from "three";
+import { memo, useRef } from "react";
 import type { Group } from "three";
-import { COLORS, FOLIAGE, BARK, type ModelProps, type TreeSize } from "../colors";
+import { ConeGeometry, CylinderGeometry } from "three";
+import {
+  BARK,
+  COLORS,
+  FOLIAGE,
+  type ModelProps,
+  type TreeSize,
+} from "../colors";
 
 /**
  * Pine — stacked cone tiers, always thinner than oak.
@@ -20,7 +26,7 @@ const trunkSm = new CylinderGeometry(0.008, 0.016, 0.12, 6);
 const trunkMd = new CylinderGeometry(0.014, 0.032, 0.28, 6);
 const trunkLg = new CylinderGeometry(0.022, 0.055, 0.38, 6);
 
-const smA = new ConeGeometry(0.06, 0.10, 6, 1);
+const smA = new ConeGeometry(0.06, 0.1, 6, 1);
 const smB = new ConeGeometry(0.04, 0.08, 6, 1);
 
 const mdA = new ConeGeometry(0.12, 0.15, 6, 1);
@@ -41,7 +47,8 @@ export const PineTree = memo(function PineTree({
   useFrame((state) => {
     if (!ref.current) return;
     const t = state.clock.getElapsedTime();
-    ref.current.rotation.z = Math.sin(t * 0.6 + (props.position?.[0] ?? 0) * 1.5) * 0.01;
+    ref.current.rotation.z =
+      Math.sin(t * 0.6 + (props.position?.[0] ?? 0) * 1.5) * 0.01;
   });
 
   return (

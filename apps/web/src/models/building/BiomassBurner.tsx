@@ -1,13 +1,28 @@
-import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { MeshStandardMaterial } from "three";
+import { useRef } from "react";
 import type { Mesh } from "three";
-import { B, M } from "./palette";
+import { MeshStandardMaterial } from "three";
+import { PortDock } from "../belt/PortDock";
+import { BELT_TILE } from "../belt/constants";
+import type { BeltPort } from "../belt/types";
 import type { ModelProps } from "../colors";
 import { StatusPole, type StatusPoleStatus } from "../StatusPole";
+import { B, M } from "./palette";
+
+/* ── Burner fuel port — west-facing input for fuel items ── */
+const BURNER_FUEL_PORT: BeltPort = {
+  id: "fuel-0",
+  role: "input",
+  facing: "west",
+  position: [-0.5, BELT_TILE.height / 2, 0],
+};
 
 /* ── Chimney smoke — wispy rising plume ── */
 const SMOKE_COUNT = 12;
+const SMOKE_KEYS = Array.from(
+  { length: SMOKE_COUNT },
+  (_, index) => `sm-${index}`,
+);
 
 /** Per-puff random drift stored at spawn time */
 type PuffState = { driftX: number; driftZ: number; riseSpeed: number };
@@ -20,7 +35,8 @@ function ChimneySmoke() {
 
   useFrame(({ clock }, delta) => {
     for (let i = 0; i < refs.current.length; i++) {
-      const smoke = refs.current[i]!;
+      const smoke = refs.current[i];
+      if (!smoke) continue;
       if (!smoke.visible) continue;
       const p = puffs.current.get(i);
       if (!p) continue;
@@ -31,10 +47,15 @@ function ChimneySmoke() {
       smoke.position.y += delta * p.riseSpeed;
       // Per-puff lateral drift + gentle wobble
       smoke.position.x += delta * p.driftX;
-      smoke.position.z += delta * p.driftZ + Math.sin(clock.elapsedTime * 0.6 + i) * delta * 0.003;
+      smoke.position.z +=
+        delta * p.driftZ +
+        Math.sin(clock.elapsedTime * 0.6 + i) * delta * 0.003;
 
       if (smoke.material instanceof MeshStandardMaterial) {
-        smoke.material.opacity = Math.max(0, smoke.material.opacity - delta * 0.07);
+        smoke.material.opacity = Math.max(
+          0,
+          smoke.material.opacity - delta * 0.07,
+        );
         if (smoke.material.opacity <= 0) {
           smoke.visible = false;
         }
@@ -50,11 +71,7 @@ function ChimneySmoke() {
         const r = Math.random() * 0.025;
         smoke.visible = true;
         smoke.scale.setScalar(0.8 + Math.random() * 0.6);
-        smoke.position.set(
-          Math.cos(angle) * r,
-          0,
-          Math.sin(angle) * r,
-        );
+        smoke.position.set(Math.cos(angle) * r, 0, Math.sin(angle) * r);
         puffs.current.set(idx, {
           driftX: (Math.random() - 0.3) * 0.012,
           driftZ: (Math.random() - 0.5) * 0.008,
@@ -71,9 +88,9 @@ function ChimneySmoke() {
 
   return (
     <group>
-      {Array.from({ length: SMOKE_COUNT }, (_, i) => (
+      {SMOKE_KEYS.map((smokeKey, i) => (
         <mesh
-          key={`sm-${i}`}
+          key={smokeKey}
           ref={(el) => {
             if (el) refs.current[i] = el;
           }}
@@ -112,7 +129,10 @@ type BiomassBurnerProps = ModelProps & {
   status?: StatusPoleStatus;
 };
 
-export function BiomassBurner({ status = "green", ...props }: BiomassBurnerProps) {
+export function BiomassBurner({
+  status = "green",
+  ...props
+}: BiomassBurnerProps) {
   const glowActive = status === "green" || status === "yellow";
   const smokeActive = status === "green";
 
@@ -147,7 +167,7 @@ export function BiomassBurner({ status = "green", ...props }: BiomassBurnerProps
       {/* ── Foundation — heavy octagonal pad ── */}
       <group position={[0, FOUND_Y, 0]}>
         <mesh>
-          <cylinderGeometry args={[0.26, 0.30, 0.05, 8]} />
+          <cylinderGeometry args={[0.26, 0.3, 0.05, 8]} />
           <meshStandardMaterial color={B.mid} {...M} roughness={0.6} />
         </mesh>
         <mesh position={[0, -0.03, 0]}>
@@ -160,25 +180,39 @@ export function BiomassBurner({ status = "green", ...props }: BiomassBurnerProps
       <group position={[0, BELLY_Y, 0]}>
         {/* Main belly volume */}
         <mesh scale={[1, 0.75, 1]}>
-          <sphereGeometry args={[0.20, 10, 8]} />
+          <sphereGeometry args={[0.2, 10, 8]} />
           <meshStandardMaterial color={B.bright} {...M} flatShading />
         </mesh>
 
         {/* Belly band — industrial strap around the middle */}
         <mesh position={[0, -0.02, 0]}>
           <torusGeometry args={[0.215, 0.012, 6, 10]} />
-          <meshStandardMaterial color={B.dark} {...M} roughness={0.6} polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} />
+          <meshStandardMaterial
+            color={B.dark}
+            {...M}
+            roughness={0.6}
+            polygonOffset
+            polygonOffsetFactor={-1}
+            polygonOffsetUnits={-1}
+          />
         </mesh>
 
         {/* Lower collar — transition to foundation */}
-        <mesh position={[0, -0.10, 0]}>
+        <mesh position={[0, -0.1, 0]}>
           <cylinderGeometry args={[0.17, 0.22, 0.04, 8]} />
-          <meshStandardMaterial color={B.mid} {...M} roughness={0.6} polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} />
+          <meshStandardMaterial
+            color={B.mid}
+            {...M}
+            roughness={0.6}
+            polygonOffset
+            polygonOffsetFactor={-1}
+            polygonOffsetUnits={-1}
+          />
         </mesh>
 
         {/* Upper collar — transition to hopper */}
         <mesh position={[0, 0.12, 0]}>
-          <cylinderGeometry args={[0.10, 0.16, 0.035, 8]} />
+          <cylinderGeometry args={[0.1, 0.16, 0.035, 8]} />
           <meshStandardMaterial color={B.mid} {...M} roughness={0.6} />
         </mesh>
       </group>
@@ -187,7 +221,7 @@ export function BiomassBurner({ status = "green", ...props }: BiomassBurnerProps
       <group position={[0, BELLY_Y - 0.02, 0.19]}>
         {/* Door frame */}
         <mesh>
-          <boxGeometry args={[0.12, 0.10, 0.02]} />
+          <boxGeometry args={[0.12, 0.1, 0.02]} />
           <meshStandardMaterial color={B.dark} {...M} roughness={0.7} />
         </mesh>
         {/* Grate glow */}
@@ -211,7 +245,7 @@ export function BiomassBurner({ status = "green", ...props }: BiomassBurnerProps
         {/* Door hinges */}
         {[-1, 1].map((side) => (
           <mesh key={`hinge-${side}`} position={[side * 0.055, 0, 0.005]}>
-            <cylinderGeometry args={[0.008, 0.008, 0.10, 6]} />
+            <cylinderGeometry args={[0.008, 0.008, 0.1, 6]} />
             <meshStandardMaterial color={B.mid} {...M} roughness={0.55} />
           </mesh>
         ))}
@@ -221,7 +255,7 @@ export function BiomassBurner({ status = "green", ...props }: BiomassBurnerProps
       <group position={[0, BELLY_Y + 0.16, 0]}>
         {/* Funnel — inverted cone */}
         <mesh>
-          <cylinderGeometry args={[0.10, 0.06, 0.06, 8]} />
+          <cylinderGeometry args={[0.1, 0.06, 0.06, 8]} />
           <meshStandardMaterial color={B.mid} {...M} roughness={0.6} />
         </mesh>
         {/* Hopper rim */}
@@ -273,7 +307,7 @@ export function BiomassBurner({ status = "green", ...props }: BiomassBurnerProps
         </mesh>
 
         {/* Chimney cap (rain guard) */}
-        <mesh position={[0.012, 0.30, 0]}>
+        <mesh position={[0.012, 0.3, 0]}>
           <cylinderGeometry args={[0.065, 0.065, 0.008, 8]} />
           <meshStandardMaterial color={B.dark} {...M} roughness={0.6} />
         </mesh>
@@ -287,7 +321,7 @@ export function BiomassBurner({ status = "green", ...props }: BiomassBurnerProps
       </group>
 
       {/* ── Air Blower — back left side ── */}
-      <group position={[-0.16, BELLY_Y, -0.10]} rotation={[0, Math.PI * 0.7, 0]}>
+      <group position={[-0.16, BELLY_Y, -0.1]} rotation={[0, Math.PI * 0.7, 0]}>
         {/* Blower housing */}
         <mesh>
           <cylinderGeometry args={[0.05, 0.055, 0.04, 8]} />
@@ -296,12 +330,26 @@ export function BiomassBurner({ status = "green", ...props }: BiomassBurnerProps
         {/* Intake pipe */}
         <mesh position={[0, 0.01, -0.04]}>
           <cylinderGeometry args={[0.025, 0.03, 0.04, 6]} />
-          <meshStandardMaterial color={B.dark} {...M} roughness={0.6} polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} />
+          <meshStandardMaterial
+            color={B.dark}
+            {...M}
+            roughness={0.6}
+            polygonOffset
+            polygonOffsetFactor={-1}
+            polygonOffsetUnits={-1}
+          />
         </mesh>
       </group>
 
       {/* ── StatusPole — on top of hopper ── */}
-      <StatusPole position={[-0.10, BELLY_Y + 0.215, 0.08]} scale={0.2} status={status} />
+      <StatusPole
+        position={[-0.1, BELLY_Y + 0.215, 0.08]}
+        scale={0.2}
+        status={status}
+      />
+
+      {/* ── Port Dock — fuel input on west face ── */}
+      <PortDock port={BURNER_FUEL_PORT} />
     </group>
   );
 }

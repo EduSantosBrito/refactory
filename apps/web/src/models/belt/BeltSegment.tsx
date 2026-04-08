@@ -1,25 +1,30 @@
-import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { FrontSide, ShaderMaterial, Vector3 } from "three";
+import { useRef } from "react";
+import { FrontSide, type ShaderMaterial, Vector3 } from "three";
 import {
-  BELT_TILE,
-  BELT_SPEED,
-  DEFAULT_BELT_RATE_PER_MINUTE,
-  SURFACE_W,
-  SURFACE_HALF_W,
-  FRAME_W,
-  RAIL_W,
-  RAIL_H,
-  BASE_W,
-  BASE_H,
   ACCENT_Y,
-  GROOVE_DENSITY,
+  BASE_H,
+  BASE_W,
   BELT_COLORS,
   BELT_MAT,
+  BELT_SPEED,
+  BELT_TILE,
+  DEFAULT_BELT_RATE_PER_MINUTE,
+  FRAME_W,
+  GROOVE_DENSITY,
+  RAIL_H,
+  RAIL_W,
   resolveBeltSpeed,
+  SURFACE_HALF_W,
+  SURFACE_W,
 } from "./constants";
-import { grooveVert, grooveFrag, GROOVE_RUNNING, GROOVE_STOPPED } from "./shaders";
-import type { BeltSegmentProps, BeltPort } from "./types";
+import {
+  GROOVE_RUNNING,
+  GROOVE_STOPPED,
+  grooveFrag,
+  grooveVert,
+} from "./shaders";
+import type { BeltPort, BeltSegmentProps } from "./types";
 
 const H = BELT_TILE.height;
 const LENGTH = 1.0;
@@ -48,6 +53,7 @@ export function BeltSegment({
   content: _content = "empty",
   ratePerMinute = DEFAULT_BELT_RATE_PER_MINUTE,
   speed,
+  endCap,
   ...props
 }: BeltSegmentProps) {
   const overlayRef = useRef<ShaderMaterial>(null);
@@ -73,7 +79,10 @@ export function BeltSegment({
     }
 
     u.uOpacity.value += (groove.opacity - u.uOpacity.value) * 0.1;
-    u.uColor.value.lerp(_lerpTarget.set(groove.color[0], groove.color[1], groove.color[2]), 0.1);
+    u.uColor.value.lerp(
+      _lerpTarget.set(groove.color[0], groove.color[1], groove.color[2]),
+      0.1,
+    );
   });
 
   return (
@@ -116,7 +125,10 @@ export function BeltSegment({
 
       {/* ── Side rails — orange accent edges ────────────── */}
       {([-1, 1] as const).map((side) => (
-        <mesh key={side} position={[0, H + RAIL_H / 2, side * (SURFACE_HALF_W + RAIL_W / 2)]}>
+        <mesh
+          key={side}
+          position={[0, H + RAIL_H / 2, side * (SURFACE_HALF_W + RAIL_W / 2)]}
+        >
           <boxGeometry args={[EXT, RAIL_H, RAIL_W]} />
           <meshStandardMaterial color={BELT_COLORS.rail} {...BELT_MAT.rail} />
         </mesh>
@@ -143,6 +155,20 @@ export function BeltSegment({
           }}
         />
       </mesh>
+
+      {/* ── End-cap brackets — terminus where belt meets building ── */}
+      {(endCap === "start" || endCap === "both") && (
+        <mesh position={[-0.5, H / 2 + 0.01, 0]}>
+          <boxGeometry args={[0.02, H * 0.65, SURFACE_W + 0.02]} />
+          <meshStandardMaterial color={BELT_COLORS.cap} {...BELT_MAT.cap} />
+        </mesh>
+      )}
+      {(endCap === "end" || endCap === "both") && (
+        <mesh position={[0.5, H / 2 + 0.01, 0]}>
+          <boxGeometry args={[0.02, H * 0.65, SURFACE_W + 0.02]} />
+          <meshStandardMaterial color={BELT_COLORS.cap} {...BELT_MAT.cap} />
+        </mesh>
+      )}
     </group>
   );
 }

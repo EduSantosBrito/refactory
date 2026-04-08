@@ -1,5 +1,5 @@
 import { BELT_TILE } from "./constants";
-import type { BuildingPorts, BeltPort } from "./types";
+import type { BeltPort, BuildingPorts } from "./types";
 
 const H = BELT_TILE.height;
 
@@ -19,7 +19,7 @@ const H = BELT_TILE.height;
 export const MINER_PORTS: BuildingPorts = {
   inputs: [],
   outputs: [
-    { id: "out-0", role: "output", facing: "east", position: [0.5, H / 2, 0] },
+    { id: "out-0", role: "output", facing: "east", position: [0.75, H / 2, 0] },
   ],
 };
 
@@ -47,7 +47,12 @@ export const SPLITTER_PORTS: BuildingPorts = {
   ],
   outputs: [
     { id: "out-0", role: "output", facing: "east", position: [0.5, H / 2, 0] },
-    { id: "out-1", role: "output", facing: "north", position: [0, H / 2, -0.5] },
+    {
+      id: "out-1",
+      role: "output",
+      facing: "north",
+      position: [0, H / 2, -0.5],
+    },
     { id: "out-2", role: "output", facing: "south", position: [0, H / 2, 0.5] },
   ],
 };
@@ -64,21 +69,23 @@ export const MERGER_PORTS: BuildingPorts = {
 };
 
 /**
- * Modular storage — 6 input docks arranged around a hexagonal body.
- * Each dock aligns to one hex face. These ports do not map to strict
- * cardinal grid directions due to the hex geometry; the facing values
- * are approximate for snap matching.
+ * Modular storage — 4 input docks at cardinal directions around an
+ * octagonal body. Each port sits at the outer face of its dock bay,
+ * where belts connect. Matches the server-side 4-port definition.
  */
-export function createStoragePorts(dockCount: number = 6): BuildingPorts {
-  const HEX_APOTHEM = 1.05 * Math.cos(Math.PI / 6);
-  const DOCK_RADIUS = HEX_APOTHEM + 0.14;
+export function createStoragePorts(dockCount: number = 4): BuildingPorts {
+  const BODY_R = 1.50; // T1_RB (matches ModularStorage.tsx tier 1)
+  const SIDES = 8;
+  const BODY_APOTHEM = BODY_R * Math.cos(Math.PI / SIDES);
+  const DOCK_D = 0.50;
+  const DOCK_INSET = 0.02;
+  const PORT_R = BODY_APOTHEM + DOCK_D - DOCK_INSET;
 
   const inputs: BeltPort[] = Array.from({ length: dockCount }, (_, i) => {
-    const angle = (i / dockCount) * Math.PI * 2 + Math.PI / 6;
-    const x = Math.sin(angle) * DOCK_RADIUS;
-    const z = Math.cos(angle) * DOCK_RADIUS;
+    const angle = (i / dockCount) * Math.PI * 2;
+    const x = Math.sin(angle) * PORT_R;
+    const z = Math.cos(angle) * PORT_R;
 
-    // Snap to nearest cardinal facing
     const facing = nearestFacing(angle);
 
     return {
@@ -92,7 +99,7 @@ export function createStoragePorts(dockCount: number = 6): BuildingPorts {
   return { inputs, outputs: [] };
 }
 
-export const MODULAR_STORAGE_PORTS = createStoragePorts(6);
+export const MODULAR_STORAGE_PORTS = createStoragePorts(4);
 
 /** Map an angle (radians, measured from +Z axis clockwise) to nearest cardinal */
 function nearestFacing(angle: number): BeltPort["facing"] {

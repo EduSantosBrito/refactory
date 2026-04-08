@@ -1,6 +1,13 @@
-import type { WorldRuntimeCheckpoint, WorldRuntimeSnapshot } from "@refactory/contracts/runtime";
-import { WorldRuntimeCheckpoint as WorldRuntimeCheckpointSchema, WorldRuntimeSnapshot as WorldRuntimeSnapshotSchema } from "@refactory/contracts/runtime";
+import type {
+  WorldRuntimeCheckpoint,
+  WorldRuntimeSnapshot,
+} from "@refactory/contracts/runtime";
+import {
+  WorldRuntimeCheckpoint as WorldRuntimeCheckpointSchema,
+  WorldRuntimeSnapshot as WorldRuntimeSnapshotSchema,
+} from "@refactory/contracts/runtime";
 import { Effect, Layer, Option, Schema, ServiceMap } from "effect";
+import { PersistenceDecodeError } from "./backend-errors.ts";
 import { SqliteDatabase, StorageError } from "./sqlite.ts";
 
 type WorldRuntimeCheckpointRow = {
@@ -9,30 +16,58 @@ type WorldRuntimeCheckpointRow = {
   readonly tick: number;
 };
 
-const decodeCheckpoint = Schema.decodeUnknownSync(WorldRuntimeCheckpointSchema);
-const decodeSnapshot = Schema.decodeUnknownSync(WorldRuntimeSnapshotSchema);
+const decodeCheckpoint = Schema.decodeUnknownEffect(
+  WorldRuntimeCheckpointSchema,
+);
+const decodeCheckpointSnapshot = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(WorldRuntimeSnapshotSchema),
+);
+const encodeCheckpointSnapshot = Schema.encodeEffect(
+  Schema.fromJsonString(WorldRuntimeSnapshotSchema),
+);
 
-const parseJsonColumn = <A>(json: string, decode: (value: unknown) => A) => decode(JSON.parse(json));
+const parseCheckpointSnapshotColumn = (json: string) =>
+  decodeCheckpointSnapshot(json).pipe(
+    Effect.mapError(
+      (cause) =>
+        new PersistenceDecodeError({
+          cause,
+          entity: "world_runtime_snapshot",
+        }),
+    ),
+  );
 
-const mapCheckpointRow = (row: WorldRuntimeCheckpointRow): WorldRuntimeCheckpoint => ({
-  savedAt: row.saved_at,
-  snapshot: parseJsonColumn(row.snapshot_json, decodeSnapshot),
-});
+const mapCheckpointRow = (row: WorldRuntimeCheckpointRow) =>
+  parseCheckpointSnapshotColumn(row.snapshot_json).pipe(
+    Effect.map(
+      (snapshot): WorldRuntimeCheckpoint => ({
+        savedAt: row.saved_at,
+        snapshot,
+      }),
+    ),
+  );
 
-export class RuntimeCheckpointStore extends ServiceMap.Service<
-  RuntimeCheckpointStore,
+const decodeStoredCheckpoint = (row: WorldRuntimeCheckpointRow) =>
+  mapCheckpointRow(row).pipe(
+    Effect.flatMap(decodeCheckpoint),
+    Effect.mapError(
+      (cause) =>
+        new PersistenceDecodeError({
+          cause,
+          entity: "world_runtime_checkpoint",
+        }),
+    ),
+    Effect.map((checkpoint) => Option.some(checkpoint)),
+  );
+
+export class RuntimeCheckpointStore extends ServiceMap.Service<RuntimeCheckpointStore>()(
+  "refactory/RuntimeCheckpointStore",
   {
-    readonly loadLatest: (worldId: string) => Effect.Effect<Option.Option<WorldRuntimeCheckpoint>, StorageError, never>;
-    readonly save: (snapshot: WorldRuntimeSnapshot, savedAt: string) => Effect.Effect<void, StorageError, never>;
-  }
->()("refactory/RuntimeCheckpointStore") {
-  static readonly Live = Layer.effect(
-    RuntimeCheckpointStore,
-    Effect.gen(function* () {
+    make: Effect.gen(function* () {
       const sqlite = yield* SqliteDatabase;
       const { database } = sqlite;
 
-      const loadLatest = Effect.fnUntraced(function*(worldId: string) {
+      const loadLatest = Effect.fnUntraced(function* (worldId: string) {
         const row = yield* Effect.try({
           try: () =>
             database
@@ -42,22 +77,33 @@ export class RuntimeCheckpointStore extends ServiceMap.Service<
                  WHERE world_id = ?1`,
               )
               .get(worldId),
-          catch: (cause) => new StorageError({ cause, operation: "runtime_checkpoints.loadLatest" }),
+          catch: (cause) =>
+            new StorageError({
+              cause,
+              operation: "runtime_checkpoints.loadLatest",
+            }),
         });
 
-        if (row === null) {
-          return Option.none();
-        }
-
-        return Option.some(
-          yield* Effect.try({
-            try: () => decodeCheckpoint(mapCheckpointRow(row)),
-            catch: (cause) => new StorageError({ cause, operation: "runtime_checkpoints.decodeLatest" }),
-          }),
-        );
+        return yield* Option.match(Option.fromNullishOr(row), {
+          onNone: () => Effect.succeed(Option.none()),
+          onSome: decodeStoredCheckpoint,
+        });
       });
 
-      const save = Effect.fnUntraced(function*(snapshot: WorldRuntimeSnapshot, savedAt: string) {
+      const save = Effect.fnUntraced(function* (
+        snapshot: WorldRuntimeSnapshot,
+        savedAt: string,
+      ) {
+        const snapshotJson = yield* encodeCheckpointSnapshot(snapshot).pipe(
+          Effect.mapError(
+            (cause) =>
+              new PersistenceDecodeError({
+                cause,
+                entity: "world_runtime_snapshot",
+              }),
+          ),
+        );
+
         yield* Effect.try({
           try: () => {
             database
@@ -67,9 +113,10 @@ export class RuntimeCheckpointStore extends ServiceMap.Service<
                  ON CONFLICT(world_id)
                  DO UPDATE SET tick = excluded.tick, saved_at = excluded.saved_at, snapshot_json = excluded.snapshot_json`,
               )
-              .run(snapshot.worldId, snapshot.tick, savedAt, JSON.stringify(snapshot));
+              .run(snapshot.worldId, snapshot.tick, savedAt, snapshotJson);
           },
-          catch: (cause) => new StorageError({ cause, operation: "runtime_checkpoints.save" }),
+          catch: (cause) =>
+            new StorageError({ cause, operation: "runtime_checkpoints.save" }),
         });
       });
 
@@ -78,5 +125,10 @@ export class RuntimeCheckpointStore extends ServiceMap.Service<
         save,
       };
     }),
+  },
+) {
+  static readonly Live = Layer.effect(
+    RuntimeCheckpointStore,
+    RuntimeCheckpointStore.make,
   );
 }

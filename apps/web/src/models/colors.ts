@@ -99,10 +99,22 @@ export const COLORS = {
 export const MAT = { roughness: 0.55, metalness: 0 } as const;
 
 /** Flat-shaded matte material for foliage — faceted low-poly look */
-export const FOLIAGE = { roughness: 0.85, metalness: 0, flatShading: true } as const;
+export const FOLIAGE = {
+  roughness: 0.85,
+  metalness: 0,
+  flatShading: true,
+} as const;
 
 /** Flat-shaded matte material for bark/trunks */
-export const BARK = { roughness: 0.9, metalness: 0, flatShading: true } as const;
+export const BARK = {
+  roughness: 0.9,
+  metalness: 0,
+  flatShading: true,
+} as const;
 
 /** Flat-shaded matte material for stone/rock */
-export const STONE_MAT = { roughness: 0.92, metalness: 0, flatShading: true } as const;
+export const STONE_MAT = {
+  roughness: 0.92,
+  metalness: 0,
+  flatShading: true,
+} as const;

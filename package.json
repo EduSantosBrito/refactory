@@ -8,22 +8,36 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "vp run -r --parallel dev",
-    "dev:web": "vp run @refactory/web#dev",
-    "dev:api": "vp run @refactory/api#dev",
-    "build": "vp run -r build",
-    "check": "vp run -r check",
-    "start": "vp run @refactory/api#start"
+    "prepare": "effect-tsgo patch",
+    "dev": "bun run --workspaces --if-present --parallel dev",
+    "dev:web": "bun run --filter '@refactory/web' dev",
+    "dev:api": "bun run --filter '@refactory/api' dev",
+    "build": "bun run --workspaces --if-present --sequential build",
+    "start": "bun run --filter '@refactory/api' start",
+    "check:web": "bun run --filter '@refactory/web' check",
+    "check:api": "bun run --filter '@refactory/api' check",
+    "check:contracts": "bun run --filter '@refactory/contracts' check",
+    "typecheck": "bun run check:web && bun run check:api && bun run check:contracts",
+    "check:biome": "biome check .",
+    "check": "bun run typecheck && bun run check:biome",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "format": "biome check . --formatter-enabled=true --linter-enabled=false --assist-enabled=false",
+    "format:write": "biome format --write ."
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.10",
+    "@catenarycloud/linteffect": "^0.0.2",
     "@effect/language-service": "^0.84.3",
+    "@effect/tsgo": "^0.2.1",
     "@types/bun": "latest",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.183.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260407.1",
     "@vitejs/plugin-react": "^6.0.1",
-    "vite-plus": "^0.1.15",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "vite-plus": "^0.1.15"
   },
   "overrides": {
     "vite": "npm:@voidzero-dev/vite-plus-core@latest",

@@ -11,6 +11,8 @@ Monorepo with:
 bun install
 ```
 
+`bun install` runs `effect-tsgo patch` via `prepare`, so workspace checks use the patched TypeScript-Go binary.
+
 ## Develop
 
 ```bash
@@ -27,4 +29,22 @@ bun run build
 
 ```bash
 bun run check
+```
+
+## Lint
+
+```bash
+bun run lint
+```
+
+## Format
+
+```bash
+bun run format
+```
+
+## Full Biome Check
+
+```bash
+bun run check:biome
 ```

@@ -8,7 +8,8 @@ export const DEFAULT_BELT_RATE_PER_MINUTE = 60;
 export const BELT_TARGET_ITEM_SPACING = 0.8;
 
 /** Belt speed in world-units per second */
-export const BELT_SPEED = (DEFAULT_BELT_RATE_PER_MINUTE * BELT_TARGET_ITEM_SPACING) / 60;
+export const BELT_SPEED =
+  (DEFAULT_BELT_RATE_PER_MINUTE * BELT_TARGET_ITEM_SPACING) / 60;
 
 export interface ResolveBeltSpeedOptions {
   ratePerMinute?: number;
@@ -35,7 +36,12 @@ export function resolveBeltSpeed({
     return speed;
   }
 
-  if (pathLength !== undefined && itemCount !== undefined && pathLength > 0 && itemCount > 0) {
+  if (
+    pathLength !== undefined &&
+    itemCount !== undefined &&
+    pathLength > 0 &&
+    itemCount > 0
+  ) {
     return (ratePerMinute * pathLength) / (itemCount * 60);
   }
 

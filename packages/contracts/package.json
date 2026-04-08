@@ -12,7 +12,9 @@
     "./worlds": "./src/worlds.ts"
   },
   "scripts": {
-    "check": "bunx tsc --noEmit -p tsconfig.json"
+    "check": "tsgo --noEmit -p tsconfig.json",
+    "lint": "biome lint .",
+    "format": "biome check . --formatter-enabled=true --linter-enabled=false --assist-enabled=false"
   },
   "dependencies": {
     "effect": "^4.0.0-beta.43"

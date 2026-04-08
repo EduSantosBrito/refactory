@@ -1,17 +1,35 @@
-import { Suspense } from "react";
+import type { AssetId } from "@refactory/contracts/worlds";
 import { Canvas } from "@react-three/fiber";
-import { WorldScene } from "./world/WorldScene";
+import { lazy, Suspense } from "react";
+
+const WorldScene = lazy(() =>
+  import("./world/WorldScene").then((module) => ({
+    default: module.WorldScene,
+  })),
+);
 
 const WORLD_FOG_COLOR = "#7395a4";
 const WORLD_FOG_NEAR = 48;
 const WORLD_FOG_FAR = 116;
+const INITIAL_CAMERA_POSITION: [number, number, number] = [0, 18, 14];
+const INITIAL_CAMERA_TARGET: [number, number, number] = [0, 0, 0];
 
-export function World({ isPaused = false }: { readonly isPaused?: boolean }) {
+export function World({
+  assetId,
+  isPaused = false,
+}: {
+  readonly assetId: AssetId;
+  readonly isPaused?: boolean;
+}) {
   return (
     <Canvas
-      camera={{ position: [0, 15, 12], fov: 50, near: 0.1, far: 220 }}
+      camera={{ position: INITIAL_CAMERA_POSITION, fov: 50, near: 0.1, far: 220 }}
       gl={{ antialias: true, powerPreference: "high-performance" }}
       dpr={[1, 1.5]}
+      onCreated={(state) => {
+        state.camera.position.set(...INITIAL_CAMERA_POSITION);
+        state.camera.lookAt(...INITIAL_CAMERA_TARGET);
+      }}
       onContextMenu={(e) => e.preventDefault()}
       style={{ position: "fixed", inset: 0, width: "100vw", height: "100vh" }}
     >
@@ -44,7 +62,7 @@ export function World({ isPaused = false }: { readonly isPaused?: boolean }) {
       />
 
       <Suspense fallback={null}>
-        <WorldScene isPaused={isPaused} />
+        <WorldScene assetId={assetId} isPaused={isPaused} />
       </Suspense>
     </Canvas>
   );

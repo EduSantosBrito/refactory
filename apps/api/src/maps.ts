@@ -1,4 +1,7 @@
-import type { GridCoordinate, RuntimeMapTile } from "@refactory/contracts/runtime";
+import type {
+  GridCoordinate,
+  RuntimeMapTile,
+} from "@refactory/contracts/runtime";
 import type { WorldSpec } from "@refactory/contracts/worlds";
 
 type ResourceNodeSpec = {
@@ -28,14 +31,17 @@ const mapHeight = 12;
 
 const buildTiles = (): Array<RuntimeMapTile> =>
   Array.from({ length: mapHeight }, (_, y) =>
-    Array.from({ length: mapWidth }, (_, x): RuntimeMapTile => ({
-      altitude: x >= 10 && y >= 2 && y <= 9 ? 1 : 0,
-      buildable: true,
-      coordinate: { x, y },
-    }))
+    Array.from(
+      { length: mapWidth },
+      (_, x): RuntimeMapTile => ({
+        altitude: x >= 10 && y >= 2 && y <= 9 ? 1 : 0,
+        buildable: true,
+        coordinate: { x, y },
+      }),
+    ),
   ).flat();
 
-const GPY_7: RuntimeMapContract = {
+export const GPY_7: RuntimeMapContract = {
   mapId: "GPY-7",
   modularStorageAnchor: { x: 9, y: 5 },
   resourceNodes: [
@@ -55,11 +61,4 @@ const GPY_7: RuntimeMapContract = {
   starterBoxAnchor: { x: 6, y: 7 },
   tiles: buildTiles(),
   validationZones: [],
-};
-
-export const getRuntimeMapContract = (mapId: WorldSpec["mapId"]) => {
-  switch (mapId) {
-    case "GPY-7":
-      return GPY_7;
-  }
 };

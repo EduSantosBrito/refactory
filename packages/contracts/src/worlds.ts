@@ -6,10 +6,20 @@ export type WorldMode = Schema.Schema.Type<typeof WorldMode>;
 export const WorldVisibility = Schema.Literals(["private", "public"]);
 export type WorldVisibility = Schema.Schema.Type<typeof WorldVisibility>;
 
-export const WorldStatus = Schema.Literals(["creating", "ready", "archived", "creation_failed"]);
+export const WorldStatus = Schema.Literals([
+  "creating",
+  "ready",
+  "archived",
+  "creation_failed",
+]);
 export type WorldStatus = Schema.Schema.Type<typeof WorldStatus>;
 
-export const AssetId = Schema.Literals(["BAR-001", "FLA-002", "FRO-003", "RPA-004"]);
+export const AssetId = Schema.Literals([
+  "BAR-001",
+  "FLA-002",
+  "FRO-003",
+  "RPA-004",
+]);
 export type AssetId = Schema.Schema.Type<typeof AssetId>;
 
 const AssetSlotState = Schema.Literals(["reserved", "open", "closed"]);
@@ -153,7 +163,9 @@ export const ListWorldsResponse = Schema.Struct({
   worlds: Schema.Array(WorldSummary),
 });
 
-export class InvalidWorldNameError extends Schema.ErrorClass<InvalidWorldNameError>("refactory/InvalidWorldNameError")(
+export class InvalidWorldNameError extends Schema.ErrorClass<InvalidWorldNameError>(
+  "refactory/InvalidWorldNameError",
+)(
   {
     _tag: Schema.tag("InvalidWorldNameError"),
     message: Schema.String,
@@ -164,7 +176,9 @@ export class InvalidWorldNameError extends Schema.ErrorClass<InvalidWorldNameErr
   },
 ) {}
 
-export class InvalidWorldCursorError extends Schema.ErrorClass<InvalidWorldCursorError>("refactory/InvalidWorldCursorError")(
+export class InvalidWorldCursorError extends Schema.ErrorClass<InvalidWorldCursorError>(
+  "refactory/InvalidWorldCursorError",
+)(
   {
     _tag: Schema.tag("InvalidWorldCursorError"),
     message: Schema.String,
@@ -175,7 +189,9 @@ export class InvalidWorldCursorError extends Schema.ErrorClass<InvalidWorldCurso
   },
 ) {}
 
-export class IdempotencyConflictError extends Schema.ErrorClass<IdempotencyConflictError>("refactory/IdempotencyConflictError")(
+export class IdempotencyConflictError extends Schema.ErrorClass<IdempotencyConflictError>(
+  "refactory/IdempotencyConflictError",
+)(
   {
     _tag: Schema.tag("IdempotencyConflictError"),
     idempotencyKey: Schema.String,
@@ -186,7 +202,9 @@ export class IdempotencyConflictError extends Schema.ErrorClass<IdempotencyConfl
   },
 ) {}
 
-export class WorldNameTakenError extends Schema.ErrorClass<WorldNameTakenError>("refactory/WorldNameTakenError")(
+export class WorldNameTakenError extends Schema.ErrorClass<WorldNameTakenError>(
+  "refactory/WorldNameTakenError",
+)(
   {
     _tag: Schema.tag("WorldNameTakenError"),
     worldName: Schema.String,
@@ -197,7 +215,9 @@ export class WorldNameTakenError extends Schema.ErrorClass<WorldNameTakenError>(
   },
 ) {}
 
-export class WorldNotFoundError extends Schema.ErrorClass<WorldNotFoundError>("refactory/WorldNotFoundError")(
+export class WorldNotFoundError extends Schema.ErrorClass<WorldNotFoundError>(
+  "refactory/WorldNotFoundError",
+)(
   {
     _tag: Schema.tag("WorldNotFoundError"),
     worldId: Schema.String,
@@ -208,7 +228,9 @@ export class WorldNotFoundError extends Schema.ErrorClass<WorldNotFoundError>("r
   },
 ) {}
 
-export class WorldAccessDeniedError extends Schema.ErrorClass<WorldAccessDeniedError>("refactory/WorldAccessDeniedError")(
+export class WorldAccessDeniedError extends Schema.ErrorClass<WorldAccessDeniedError>(
+  "refactory/WorldAccessDeniedError",
+)(
   {
     _tag: Schema.tag("WorldAccessDeniedError"),
     worldId: Schema.String,

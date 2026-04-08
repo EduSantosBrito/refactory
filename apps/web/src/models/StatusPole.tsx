@@ -1,8 +1,8 @@
-import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { AtomRef } from "effect/unstable/reactivity";
-import { Color } from "three";
+import { useMemo, useRef } from "react";
 import type { MeshStandardMaterial } from "three";
+import { Color } from "three";
 import type { ModelProps } from "./colors";
 
 export type StatusPoleStatus = "green" | "yellow" | "red";
@@ -29,7 +29,10 @@ const LIGHT_DOME_Y = LIGHT_BODY_HEIGHT / 2;
 const SHAFT_COLOR = "#6f727b";
 const COLLAR_COLOR = "#8f929b";
 
-const STATUS_COLORS: Record<StatusPoleStatus, { dark: string; bright: string }> = {
+const STATUS_COLORS: Record<
+  StatusPoleStatus,
+  { dark: string; bright: string }
+> = {
   green: { dark: "#0f4d1e", bright: "#31ff61" },
   yellow: { dark: "#6a4b00", bright: "#ffd84a" },
   red: { dark: "#5c0000", bright: "#ff0000" },
@@ -86,18 +89,35 @@ export function StatusPole({ status = "red", ...props }: StatusPoleProps) {
   return (
     <group {...props}>
       <mesh position={[0, SHAFT_Y, 0]}>
-        <cylinderGeometry args={[SHAFT_RADIUS, SHAFT_RADIUS, SHAFT_HEIGHT, 12]} />
-        <meshStandardMaterial color={SHAFT_COLOR} roughness={0.65} metalness={0.05} />
+        <cylinderGeometry
+          args={[SHAFT_RADIUS, SHAFT_RADIUS, SHAFT_HEIGHT, 12]}
+        />
+        <meshStandardMaterial
+          color={SHAFT_COLOR}
+          roughness={0.65}
+          metalness={0.05}
+        />
       </mesh>
 
       <mesh position={[0, COLLAR_Y, 0]}>
-        <cylinderGeometry args={[COLLAR_RADIUS, COLLAR_RADIUS, COLLAR_HEIGHT, 12]} />
-        <meshStandardMaterial color={COLLAR_COLOR} roughness={0.6} metalness={0.06} />
+        <cylinderGeometry
+          args={[COLLAR_RADIUS, COLLAR_RADIUS, COLLAR_HEIGHT, 12]}
+        />
+        <meshStandardMaterial
+          color={COLLAR_COLOR}
+          roughness={0.6}
+          metalness={0.06}
+        />
       </mesh>
 
       <mesh position={[0, 0, 0]}>
         <cylinderGeometry
-          args={[LIGHT_BODY_TOP_RADIUS, LIGHT_BODY_BOTTOM_RADIUS, LIGHT_BODY_HEIGHT, 12]}
+          args={[
+            LIGHT_BODY_TOP_RADIUS,
+            LIGHT_BODY_BOTTOM_RADIUS,
+            LIGHT_BODY_HEIGHT,
+            12,
+          ]}
         />
         <meshStandardMaterial
           ref={bodyMaterialRef}

@@ -1,5 +1,5 @@
-import { B, M } from "./palette";
 import { MechLeg } from "../MechLeg";
+import { B, M } from "./palette";
 
 const S = 8;
 const LEGS = 4;
@@ -35,7 +35,7 @@ export function Foundation({ legSize = "sm" }: FoundationProps) {
         const a = (i / LEGS) * Math.PI * 2 + Math.PI / 4;
         return (
           <group
-            key={`lg-${i}`}
+            key={`lg-${a.toFixed(3)}`}
             position={[Math.sin(a) * LEG_R, 0, Math.cos(a) * LEG_R]}
           >
             <MechLeg direction={a} size={legSize} variant="rounded" />

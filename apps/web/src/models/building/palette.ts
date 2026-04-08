@@ -23,9 +23,9 @@ export type BodyHeight = "short" | "standard" | "tall";
 
 /** Body half-height by variant */
 export const BODY_HALF_H_MAP: Record<BodyHeight, number> = {
-  short: 0.10,
+  short: 0.1,
   standard: 0.134,
-  tall: 0.20,
+  tall: 0.2,
 };
 
 /** Body half-height (standard) */

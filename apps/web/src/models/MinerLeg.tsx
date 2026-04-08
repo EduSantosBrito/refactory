@@ -1,6 +1,6 @@
-import { useRef, useMemo } from "react";
 import { useFrame } from "@react-three/fiber";
 import type { AtomRegistry } from "effect/unstable/reactivity";
+import { useMemo, useRef } from "react";
 import type { Group } from "three";
 import { MAT } from "./colors";
 import { syncMinerMotion } from "./Miner.state";
@@ -43,7 +43,11 @@ type MinerLegProps = {
   groundDistance?: number;
 };
 
-export function MinerLeg({ direction, registry, groundDistance = BASE_GROUND }: MinerLegProps) {
+export function MinerLeg({
+  direction,
+  registry,
+  groundDistance = BASE_GROUND,
+}: MinerLegProps) {
   const upperArmRef = useRef<Group>(null);
   const elbowRef = useRef<Group>(null);
   const lowerArmRef = useRef<Group>(null);
@@ -60,9 +64,16 @@ export function MinerLeg({ direction, registry, groundDistance = BASE_GROUND }: 
     const d = Math.sqrt(fx * fx + fy * fy);
 
     const baseAngle = Math.atan2(fy, fx);
-    const cosA = Math.min(1, Math.max(-1,
-      (arms.upperLen * arms.upperLen + d * d - arms.lowerLen * arms.lowerLen) / (2 * arms.upperLen * d),
-    ));
+    const cosA = Math.min(
+      1,
+      Math.max(
+        -1,
+        (arms.upperLen * arms.upperLen +
+          d * d -
+          arms.lowerLen * arms.lowerLen) /
+          (2 * arms.upperLen * d),
+      ),
+    );
     const A = Math.acos(cosA);
 
     const upperAngle = baseAngle + A;

@@ -19,7 +19,11 @@ type MechLegProps = {
   variant?: MechLegVariant;
 };
 
-export function MechLeg({ direction, size = "md", variant = "square" }: MechLegProps) {
+export function MechLeg({
+  direction,
+  size = "md",
+  variant = "square",
+}: MechLegProps) {
   return size === "sm" ? (
     <MechLegSm direction={direction} variant={variant} />
   ) : (
@@ -34,14 +38,24 @@ const SM_ELBOW_Y = -0.015;
 const SM_FOOT_X = 0.12;
 const SM_FOOT_Y = -0.1;
 
-const SM_UPPER_LEN = Math.sqrt(SM_ELBOW_X * SM_ELBOW_X + SM_ELBOW_Y * SM_ELBOW_Y);
+const SM_UPPER_LEN = Math.sqrt(
+  SM_ELBOW_X * SM_ELBOW_X + SM_ELBOW_Y * SM_ELBOW_Y,
+);
 const SM_UPPER_ANGLE = Math.atan2(SM_ELBOW_Y, SM_ELBOW_X);
 const SM_LOWER_DX = SM_FOOT_X - SM_ELBOW_X;
 const SM_LOWER_DY = SM_FOOT_Y - SM_ELBOW_Y;
-const SM_LOWER_LEN = Math.sqrt(SM_LOWER_DX * SM_LOWER_DX + SM_LOWER_DY * SM_LOWER_DY);
+const SM_LOWER_LEN = Math.sqrt(
+  SM_LOWER_DX * SM_LOWER_DX + SM_LOWER_DY * SM_LOWER_DY,
+);
 const SM_LOWER_ANGLE = Math.atan2(SM_LOWER_DY, SM_LOWER_DX);
 
-function MechLegSm({ direction, variant = "square" }: { direction: number; variant?: MechLegVariant }) {
+function MechLegSm({
+  direction,
+  variant = "square",
+}: {
+  direction: number;
+  variant?: MechLegVariant;
+}) {
   return (
     <group rotation={[0, direction - Math.PI / 2, 0]}>
       {/* ── Shoulder mount ─────────────────────── */}
@@ -131,7 +145,10 @@ function MechLegSm({ direction, variant = "square" }: { direction: number; varia
       </group>
 
       {/* ── Lower arm — drops down steeply ─────── */}
-      <group position={[SM_ELBOW_X, SM_ELBOW_Y, 0]} rotation={[0, 0, SM_LOWER_ANGLE]}>
+      <group
+        position={[SM_ELBOW_X, SM_ELBOW_Y, 0]}
+        rotation={[0, 0, SM_LOWER_ANGLE]}
+      >
         <mesh position={[SM_LOWER_LEN / 2, 0, 0]}>
           <boxGeometry args={[SM_LOWER_LEN, 0.026, 0.04]} />
           <meshStandardMaterial color={HULL_DARK} {...MAT} roughness={0.6} />
@@ -208,11 +225,15 @@ const MD_FOOT_X = 0.15;
 const MD_FOOT_Y = -0.18;
 const MD_BEAM_GAP = 0.03;
 
-const MD_UPPER_LEN = Math.sqrt(MD_ELBOW_X * MD_ELBOW_X + MD_ELBOW_Y * MD_ELBOW_Y);
+const MD_UPPER_LEN = Math.sqrt(
+  MD_ELBOW_X * MD_ELBOW_X + MD_ELBOW_Y * MD_ELBOW_Y,
+);
 const MD_UPPER_ANGLE = Math.atan2(MD_ELBOW_Y, MD_ELBOW_X);
 const MD_LOWER_DX = MD_FOOT_X - MD_ELBOW_X;
 const MD_LOWER_DY = MD_FOOT_Y - MD_ELBOW_Y;
-const MD_LOWER_LEN = Math.sqrt(MD_LOWER_DX * MD_LOWER_DX + MD_LOWER_DY * MD_LOWER_DY);
+const MD_LOWER_LEN = Math.sqrt(
+  MD_LOWER_DX * MD_LOWER_DX + MD_LOWER_DY * MD_LOWER_DY,
+);
 const MD_LOWER_ANGLE = Math.atan2(MD_LOWER_DY, MD_LOWER_DX);
 
 function MechLegMd({ direction }: { direction: number }) {
@@ -281,7 +302,10 @@ function MechLegMd({ direction }: { direction: number }) {
       </group>
 
       {/* ── Lower arm (yoke) ───────────────────── */}
-      <group position={[MD_ELBOW_X, MD_ELBOW_Y, 0]} rotation={[0, 0, MD_LOWER_ANGLE]}>
+      <group
+        position={[MD_ELBOW_X, MD_ELBOW_Y, 0]}
+        rotation={[0, 0, MD_LOWER_ANGLE]}
+      >
         <mesh position={[MD_LOWER_LEN / 2, 0, MD_BEAM_GAP]}>
           <boxGeometry args={[MD_LOWER_LEN, 0.035, 0.022]} />
           <meshStandardMaterial color={HULL_DARK} {...MAT} roughness={0.6} />

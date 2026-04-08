@@ -6,7 +6,9 @@
     "dev": "bun --hot src/index.ts",
     "start": "bun src/index.ts",
     "build": "bun build ./src/index.ts --outdir ./dist --target bun",
-    "check": "bunx tsc --noEmit -p tsconfig.json"
+    "check": "bun test ./src/backend-contracts.test.ts && tsgo --noEmit -p tsconfig.json",
+    "lint": "biome lint .",
+    "format": "biome check . --formatter-enabled=true --linter-enabled=false --assist-enabled=false"
   },
   "dependencies": {
     "@refactory/contracts": "workspace:*",

@@ -1,62 +1,80 @@
-export { PlayerAvatar } from "./PlayerAvatar";
-export { ResourceNode } from "./ResourceNode";
-export type { ResourceType, PurityTier, ResourceNodeProps } from "./ResourceNode";
-export { NODE_MINER_OFFSET } from "./ResourceNode";
-export { Processor } from "./Processor";
-
-/* ── New modular belt system ─────────────────────────────── */
-export {
-  BeltSegment,
-  BeltCurve,
-  BeltChain,
-  STRAIGHT_PORTS,
-  CURVE_PORTS,
-  MINER_PORTS,
-  SMELTER_PORTS,
-  PROCESSOR_PORTS,
-  SPLITTER_PORTS,
-  MERGER_PORTS,
-  MODULAR_STORAGE_PORTS,
-  canConnect,
-} from "./belt";
+export { Antenna } from "./Antenna";
 export type {
+  BeltChainProps,
+  BeltContentState,
+  BeltEndCap,
   BeltPort,
   BeltPowerState,
-  BeltContentState,
-  BeltSegmentType,
   BeltSegmentProps,
-  ChainSegment,
-  ChainItem,
+  BeltSegmentType,
   BuildingPorts,
-  BeltChainProps,
+  ChainItem,
+  ChainSegment,
+  PortHighlight,
 } from "./belt";
-
-export { ModularStorage } from "./ModularStorage";
-export { PowerPole } from "./PowerPole";
-export { StatusPole } from "./StatusPole";
-export type { StatusPoleStatus } from "./StatusPole";
-export { WindTurbine } from "./WindTurbine";
-export { MechLeg } from "./MechLeg";
-export { MinerLeg } from "./MinerLeg";
-export { MinerFoundation } from "./MinerFoundation";
-export { Miner } from "./Miner";
-export { Rocket } from "./Rocket";
-export { Antenna } from "./Antenna";
-export { ModularBuilding } from "./building";
-export type { TopModuleType, SideAttachmentDef, ModularBuildingProps, BodyHeight } from "./building";
-export { BiomassBurner, OreSmelter, ProcessorUnit, ContainerStorage, PersonalBox } from "./building";
+/* ── New modular belt system ─────────────────────────────── */
 export {
-  OakTree,
-  DetailedTree,
-  PineTree,
-  FlatTopTree,
-  DeadTree,
-  Flower,
+  BeltChain,
+  BeltCurve,
+  BeltSegment,
+  CURVE_PORTS,
+  PortDock,
+  canConnect,
+  MERGER_PORTS,
+  MINER_PORTS,
+  MODULAR_STORAGE_PORTS,
+  PROCESSOR_PORTS,
+  SMELTER_PORTS,
+  SPLITTER_PORTS,
+  STRAIGHT_PORTS,
+} from "./belt";
+export type {
+  BodyHeight,
+  ModularBuildingProps,
+  SideAttachmentDef,
+  TopModuleType,
+} from "./building";
+export {
+  BiomassBurner,
+  ContainerStorage,
+  Merger,
+  ModularBuilding,
+  OreSmelter,
+  PersonalBox,
+  ProcessorUnit,
+  Splitter,
+} from "./building";
+export { DirectorVoss } from "./DirectorVoss";
+export { MechLeg } from "./MechLeg";
+export { Miner } from "./Miner";
+export { MinerFoundation } from "./MinerFoundation";
+export { MinerLeg } from "./MinerLeg";
+export { ModularStorage } from "./ModularStorage";
+export {
   Bush,
+  DeadTree,
+  DetailedTree,
+  FlatTopTree,
+  Flower,
   GrassClump,
+  Log,
+  Mushroom,
+  OakTree,
+  PineTree,
   Rock,
   RockFormation,
   Stump,
-  Log,
-  Mushroom,
 } from "./nature";
+export { PlayerAvatar } from "./PlayerAvatar";
+export { PowerPole } from "./PowerPole";
+export { Processor } from "./Processor";
+export type {
+  PurityTier,
+  ResourceNodeProps,
+  ResourceType,
+} from "./ResourceNode";
+export { NODE_MINER_OFFSET, ResourceNode } from "./ResourceNode";
+export { Rocket } from "./Rocket";
+export type { StatusPoleStatus } from "./StatusPole";
+export { StatusPole } from "./StatusPole";
+export { WindTurbine } from "./WindTurbine";

@@ -1,11 +1,15 @@
-import { Atom } from "effect/unstable/reactivity";
 import type { AtomRegistry } from "effect/unstable/reactivity";
+import { Atom } from "effect/unstable/reactivity";
 
 export const SQUAT_PERIOD = 3;
 export const SQUAT_DROP = 0.1;
 
 export function squatDrop(elapsedTime: number) {
-  return SQUAT_DROP * (1 - Math.cos(elapsedTime * ((2 * Math.PI) / SQUAT_PERIOD))) / 2;
+  return (
+    (SQUAT_DROP *
+      (1 - Math.cos(elapsedTime * ((2 * Math.PI) / SQUAT_PERIOD)))) /
+    2
+  );
 }
 
 export interface MinerMotionState {

@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { CylinderGeometry, SphereGeometry } from "three";
-import { COLORS, BARK, FOLIAGE, type ModelProps } from "../colors";
+import { BARK, COLORS, FOLIAGE, type ModelProps } from "../colors";
 
 /**
  * Small mushroom — red cap on cream stem, flat-shaded.

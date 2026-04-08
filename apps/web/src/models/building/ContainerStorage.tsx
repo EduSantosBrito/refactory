@@ -1,5 +1,16 @@
-import { B, M } from "./palette";
+import { PortDock } from "../belt/PortDock";
+import { BELT_TILE } from "../belt/constants";
+import type { BeltPort } from "../belt/types";
 import type { ModelProps } from "../colors";
+import { B, M } from "./palette";
+
+/* ── Container input port — south-facing input on +Z side ── */
+const CONTAINER_INPUT_PORT: BeltPort = {
+  id: "in-0",
+  role: "input",
+  facing: "south",
+  position: [0, BELT_TILE.height / 2, 0.5],
+};
 
 /**
  * Container Storage — "The Shipping Container"
@@ -15,14 +26,12 @@ import type { ModelProps } from "../colors";
 
 /* ── Dimensions ── */
 const CW = 0.72; // container width (long axis, X)
-const CD = 0.30; // container depth (short axis, Z)
-const CH = 0.30; // container body height
+const CD = 0.3; // container depth (short axis, Z)
+const CH = 0.3; // container body height
 const BASE_H = 0.03; // bottom frame height
 
 const BASE_Y = BASE_H / 2;
 const BODY_Y = BASE_H + CH / 2;
-const TOP_Y = BASE_H + CH;
-
 /* Corner casting dimensions */
 const CC_W = 0.04; // casting width along container edge
 const CC_D = 0.04;
@@ -42,7 +51,10 @@ export function ContainerStorage(props: ModelProps) {
       <group>
         {/* 2× Long bottom rails (X direction) */}
         {[-1, 1].map((side) => (
-          <mesh key={`rail-${side}`} position={[0, BASE_Y, side * (CD / 2 - 0.015)]}>
+          <mesh
+            key={`rail-${side}`}
+            position={[0, BASE_Y, side * (CD / 2 - 0.015)]}
+          >
             <boxGeometry args={[CW + 0.01, BASE_H, 0.025]} />
             <meshStandardMaterial color={B.dark} {...M} roughness={0.7} />
           </mesh>
@@ -50,7 +62,10 @@ export function ContainerStorage(props: ModelProps) {
 
         {/* 3× Cross-members */}
         {[-1, 0, 1].map((pos) => (
-          <mesh key={`xmember-${pos}`} position={[pos * (CW * 0.35), BASE_Y, 0]}>
+          <mesh
+            key={`xmember-${pos}`}
+            position={[pos * (CW * 0.35), BASE_Y, 0]}
+          >
             <boxGeometry args={[0.025, BASE_H, CD - 0.02]} />
             <meshStandardMaterial color={B.dark} {...M} roughness={0.7} />
           </mesh>
@@ -61,7 +76,11 @@ export function ContainerStorage(props: ModelProps) {
           [-1, 1].map((zSide) => (
             <mesh
               key={`fork-${xSide}-${zSide}`}
-              position={[xSide * (CW * 0.17), BASE_Y - 0.005, zSide * (CD / 2 - 0.015)]}
+              position={[
+                xSide * (CW * 0.17),
+                BASE_Y - 0.005,
+                zSide * (CD / 2 - 0.015),
+              ]}
             >
               <boxGeometry args={[CW * 0.28, BASE_H * 0.6, 0.03]} />
               <meshStandardMaterial color="#1a1a2a" {...M} roughness={0.9} />
@@ -86,7 +105,7 @@ export function ContainerStorage(props: ModelProps) {
             const xPos = -RIB_SPAN / 2 + RIB_STEP * (i + 1);
             return (
               <mesh
-                key={`rib-${side}-${i}`}
+                key={`rib-${side}-${xPos.toFixed(3)}`}
                 position={[xPos, 0, side * (CD / 2 + 0.003)]}
               >
                 <boxGeometry args={[0.012, CH * 0.88, 0.008]} />
@@ -113,7 +132,14 @@ export function ContainerStorage(props: ModelProps) {
       {/* ═══════════════════════════════════════════
           3. CORNER CASTINGS — 8 blocks at all corners
           ═══════════════════════════════════════════ */}
-      {([[-1, -1], [-1, 1], [1, -1], [1, 1]] as const).map(([sx, sz]) =>
+      {(
+        [
+          [-1, -1],
+          [-1, 1],
+          [1, -1],
+          [1, 1],
+        ] as const
+      ).map(([sx, sz]) =>
         /* Top and bottom castings for each corner */
         [0, 1].map((top) => {
           const yOff = top === 0 ? -CH / 2 + 0.03 : CH / 2 - 0.03;
@@ -134,14 +160,17 @@ export function ContainerStorage(props: ModelProps) {
       )}
 
       {/* Vertical corner posts connecting top/bottom castings */}
-      {([[-1, -1], [-1, 1], [1, -1], [1, 1]] as const).map(([sx, sz], i) => (
+      {(
+        [
+          [-1, -1],
+          [-1, 1],
+          [1, -1],
+          [1, 1],
+        ] as const
+      ).map(([sx, sz]) => (
         <mesh
-          key={`cpost-${i}`}
-          position={[
-            sx * (CW / 2 - 0.01),
-            BODY_Y,
-            sz * (CD / 2 - 0.01),
-          ]}
+          key={`cpost-${sx}-${sz}`}
+          position={[sx * (CW / 2 - 0.01), BODY_Y, sz * (CD / 2 - 0.01)]}
         >
           <boxGeometry args={[0.02, CC_H, 0.02]} />
           <meshStandardMaterial color={B.dark} {...M} roughness={0.65} />
@@ -155,7 +184,7 @@ export function ContainerStorage(props: ModelProps) {
         {/* Door panels — 2 side by side */}
         {[-1, 1].map((side) => (
           <mesh key={`door-${side}`} position={[0, 0, side * (CD * 0.22)]}>
-            <boxGeometry args={[0.01, CH * 0.90, CD * 0.40]} />
+            <boxGeometry args={[0.01, CH * 0.9, CD * 0.4]} />
             <meshStandardMaterial color={B.light} {...M} roughness={0.55} />
           </mesh>
         ))}
@@ -211,7 +240,7 @@ export function ContainerStorage(props: ModelProps) {
       <group position={[-CW / 2 - 0.003, BODY_Y, 0]}>
         {/* End plate */}
         <mesh>
-          <boxGeometry args={[0.008, CH * 0.90, CD * 0.88]} />
+          <boxGeometry args={[0.008, CH * 0.9, CD * 0.88]} />
           <meshStandardMaterial color={B.bright} {...M} />
         </mesh>
         {/* Small vent */}
@@ -221,7 +250,10 @@ export function ContainerStorage(props: ModelProps) {
         </mesh>
         {/* Vent slats */}
         {[-1, 0, 1].map((row) => (
-          <mesh key={`vslat-${row}`} position={[-0.008, CH * 0.3 + row * 0.012, 0]}>
+          <mesh
+            key={`vslat-${row}`}
+            position={[-0.008, CH * 0.3 + row * 0.012, 0]}
+          >
             <boxGeometry args={[0.004, 0.005, 0.065]} />
             <meshStandardMaterial color={B.mid} {...M} roughness={0.6} />
           </mesh>
@@ -247,7 +279,7 @@ export function ContainerStorage(props: ModelProps) {
         </mesh>
         {/* Accent ring */}
         <mesh position={[0, 0.013, 0]}>
-          <torusGeometry args={[0.040, 0.005, 6, 8]} />
+          <torusGeometry args={[0.04, 0.005, 6, 8]} />
           <meshStandardMaterial color={B.accent} {...M} roughness={0.5} />
         </mesh>
       </group>
@@ -259,6 +291,11 @@ export function ContainerStorage(props: ModelProps) {
         <boxGeometry args={[0.004, 0.035, 0.05]} />
         <meshStandardMaterial color={B.mid} {...M} roughness={0.6} />
       </mesh>
+
+      {/* ═══════════════════════════════════════════
+          8. PORT DOCK — input on south (+Z) side
+          ═══════════════════════════════════════════ */}
+      <PortDock port={CONTAINER_INPUT_PORT} />
     </group>
   );
 }

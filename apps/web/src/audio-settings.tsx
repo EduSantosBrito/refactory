@@ -22,7 +22,9 @@ const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   soundEffects: 1,
 };
 
-const AudioSettingsContext = createContext<AudioSettingsContextValue | null>(null);
+const AudioSettingsContext = createContext<AudioSettingsContextValue | null>(
+  null,
+);
 
 function clampVolume(value: number): number {
   return Math.max(0, Math.min(1, value));
@@ -58,7 +60,11 @@ function readStoredAudioSettings(): AudioSettings {
     }
 
     return {
-      overall: readStoredVolume(parsed, "overall", DEFAULT_AUDIO_SETTINGS.overall),
+      overall: readStoredVolume(
+        parsed,
+        "overall",
+        DEFAULT_AUDIO_SETTINGS.overall,
+      ),
       music: readStoredVolume(parsed, "music", DEFAULT_AUDIO_SETTINGS.music),
       soundEffects: readStoredVolume(
         parsed,
@@ -71,17 +77,29 @@ function readStoredAudioSettings(): AudioSettings {
   }
 }
 
-function getChannelVolume(settings: AudioSettings, channel: AudioChannel): number {
+function getChannelVolume(
+  settings: AudioSettings,
+  channel: AudioChannel,
+): number {
   return channel === "music"
     ? settings.overall * settings.music
     : settings.overall * settings.soundEffects;
 }
 
-export function AudioSettingsProvider({ children }: { readonly children: React.ReactNode }) {
-  const [settings, setSettings] = useState<AudioSettings>(() => readStoredAudioSettings());
+export function AudioSettingsProvider({
+  children,
+}: {
+  readonly children: React.ReactNode;
+}) {
+  const [settings, setSettings] = useState<AudioSettings>(() =>
+    readStoredAudioSettings(),
+  );
 
   useEffect(() => {
-    window.localStorage.setItem(AUDIO_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    window.localStorage.setItem(
+      AUDIO_SETTINGS_STORAGE_KEY,
+      JSON.stringify(settings),
+    );
   }, [settings]);
 
   return (

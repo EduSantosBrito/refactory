@@ -1,8 +1,8 @@
-import { memo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { CylinderGeometry } from "three";
+import { memo, useRef } from "react";
 import type { Group } from "three";
-import { COLORS, BARK, type ModelProps, type TreeSize } from "../colors";
+import { CylinderGeometry } from "three";
+import { BARK, COLORS, type ModelProps, type TreeSize } from "../colors";
 
 /**
  * Dead tree — bare trunk with branch stubs, no foliage.
@@ -21,7 +21,7 @@ const branchMd = new CylinderGeometry(0.004, 0.014, 0.11, 4);
 const branchSm = new CylinderGeometry(0.003, 0.01, 0.08, 4);
 const branchTiny = new CylinderGeometry(0.002, 0.007, 0.06, 4);
 
-const forkA = new CylinderGeometry(0.003, 0.012, 0.10, 4);
+const forkA = new CylinderGeometry(0.003, 0.012, 0.1, 4);
 const forkB = new CylinderGeometry(0.002, 0.01, 0.08, 4);
 
 export const DeadTree = memo(function DeadTree({
@@ -33,7 +33,8 @@ export const DeadTree = memo(function DeadTree({
   useFrame((state) => {
     if (!ref.current) return;
     const t = state.clock.getElapsedTime();
-    ref.current.rotation.z = Math.sin(t * 0.5 + (props.position?.[0] ?? 0) * 2) * 0.008;
+    ref.current.rotation.z =
+      Math.sin(t * 0.5 + (props.position?.[0] ?? 0) * 2) * 0.008;
   });
 
   return (
@@ -44,10 +45,18 @@ export const DeadTree = memo(function DeadTree({
             <meshStandardMaterial color={COLORS.trunk} {...BARK} />
           </mesh>
           <group ref={ref}>
-            <mesh geometry={branchTiny} position={[0.025, 0.16, 0]} rotation={[0, 0, -0.8]}>
+            <mesh
+              geometry={branchTiny}
+              position={[0.025, 0.16, 0]}
+              rotation={[0, 0, -0.8]}
+            >
               <meshStandardMaterial color={COLORS.trunkDark} {...BARK} />
             </mesh>
-            <mesh geometry={branchTiny} position={[-0.02, 0.12, 0.01]} rotation={[0.2, 0, 0.9]}>
+            <mesh
+              geometry={branchTiny}
+              position={[-0.02, 0.12, 0.01]}
+              rotation={[0.2, 0, 0.9]}
+            >
               <meshStandardMaterial color={COLORS.trunk} {...BARK} />
             </mesh>
           </group>
@@ -59,19 +68,39 @@ export const DeadTree = memo(function DeadTree({
             <meshStandardMaterial color={COLORS.trunk} {...BARK} />
           </mesh>
           <group ref={ref}>
-            <mesh geometry={branchMd} position={[0.055, 0.28, 0.01]} rotation={[0.1, 0, -0.7]}>
+            <mesh
+              geometry={branchMd}
+              position={[0.055, 0.28, 0.01]}
+              rotation={[0.1, 0, -0.7]}
+            >
               <meshStandardMaterial color={COLORS.trunkDark} {...BARK} />
             </mesh>
-            <mesh geometry={branchSm} position={[-0.045, 0.20, -0.02]} rotation={[-0.15, 0, 0.8]}>
+            <mesh
+              geometry={branchSm}
+              position={[-0.045, 0.2, -0.02]}
+              rotation={[-0.15, 0, 0.8]}
+            >
               <meshStandardMaterial color={COLORS.trunk} {...BARK} />
             </mesh>
-            <mesh geometry={branchSm} position={[0.02, 0.14, 0.04]} rotation={[0.6, 0, -0.5]}>
+            <mesh
+              geometry={branchSm}
+              position={[0.02, 0.14, 0.04]}
+              rotation={[0.6, 0, -0.5]}
+            >
               <meshStandardMaterial color={COLORS.trunkDark} {...BARK} />
             </mesh>
-            <mesh geometry={forkA} position={[0.018, 0.38, 0]} rotation={[0, 0, -0.25]}>
+            <mesh
+              geometry={forkA}
+              position={[0.018, 0.38, 0]}
+              rotation={[0, 0, -0.25]}
+            >
               <meshStandardMaterial color={COLORS.trunk} {...BARK} />
             </mesh>
-            <mesh geometry={forkB} position={[-0.014, 0.37, 0.005]} rotation={[0.1, 0, 0.3]}>
+            <mesh
+              geometry={forkB}
+              position={[-0.014, 0.37, 0.005]}
+              rotation={[0.1, 0, 0.3]}
+            >
               <meshStandardMaterial color={COLORS.trunkDark} {...BARK} />
             </mesh>
           </group>
@@ -83,25 +112,53 @@ export const DeadTree = memo(function DeadTree({
             <meshStandardMaterial color={COLORS.trunk} {...BARK} />
           </mesh>
           <group ref={ref}>
-            <mesh geometry={branchLg} position={[0.08, 0.35, 0.02]} rotation={[0.15, 0, -0.65]}>
+            <mesh
+              geometry={branchLg}
+              position={[0.08, 0.35, 0.02]}
+              rotation={[0.15, 0, -0.65]}
+            >
               <meshStandardMaterial color={COLORS.trunkDark} {...BARK} />
             </mesh>
-            <mesh geometry={branchMd} position={[-0.07, 0.28, -0.03]} rotation={[-0.2, 0, 0.75]}>
+            <mesh
+              geometry={branchMd}
+              position={[-0.07, 0.28, -0.03]}
+              rotation={[-0.2, 0, 0.75]}
+            >
               <meshStandardMaterial color={COLORS.trunk} {...BARK} />
             </mesh>
-            <mesh geometry={branchMd} position={[0.07, 0.18, 0.05]} rotation={[0.5, 0, -0.4]}>
+            <mesh
+              geometry={branchMd}
+              position={[0.07, 0.18, 0.05]}
+              rotation={[0.5, 0, -0.4]}
+            >
               <meshStandardMaterial color={COLORS.trunkDark} {...BARK} />
             </mesh>
-            <mesh geometry={branchSm} position={[-0.07, 0.22, 0.05]} rotation={[0.4, 0.3, 0.6]}>
+            <mesh
+              geometry={branchSm}
+              position={[-0.07, 0.22, 0.05]}
+              rotation={[0.4, 0.3, 0.6]}
+            >
               <meshStandardMaterial color={COLORS.trunk} {...BARK} />
             </mesh>
-            <mesh geometry={forkA} position={[0.025, 0.46, 0.01]} rotation={[0.1, 0, -0.25]}>
+            <mesh
+              geometry={forkA}
+              position={[0.025, 0.46, 0.01]}
+              rotation={[0.1, 0, -0.25]}
+            >
               <meshStandardMaterial color={COLORS.trunk} {...BARK} />
             </mesh>
-            <mesh geometry={forkA} position={[-0.02, 0.45, -0.01]} rotation={[-0.1, 0, 0.3]}>
+            <mesh
+              geometry={forkA}
+              position={[-0.02, 0.45, -0.01]}
+              rotation={[-0.1, 0, 0.3]}
+            >
               <meshStandardMaterial color={COLORS.trunkDark} {...BARK} />
             </mesh>
-            <mesh geometry={forkB} position={[0.005, 0.47, 0.015]} rotation={[0.2, 0.2, -0.1]}>
+            <mesh
+              geometry={forkB}
+              position={[0.005, 0.47, 0.015]}
+              rotation={[0.2, 0.2, -0.1]}
+            >
               <meshStandardMaterial color={COLORS.trunk} {...BARK} />
             </mesh>
           </group>

@@ -1,12 +1,12 @@
-import { useEffect, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { AtomRegistry } from "effect/unstable/reactivity";
+import { useEffect, useRef } from "react";
 import type { Group } from "three";
 import type { ModelProps } from "./colors";
 import { syncMinerMotion } from "./Miner.state";
-import type { StatusPoleStatus } from "./StatusPole";
 import { MinerFoundation } from "./MinerFoundation";
 import { MinerTop } from "./MinerTop";
+import type { StatusPoleStatus } from "./StatusPole";
 
 type MinerProps = ModelProps & {
   status?: StatusPoleStatus;
@@ -14,7 +14,11 @@ type MinerProps = ModelProps & {
   nodeHeight?: number;
 };
 
-export function Miner({ status = "green", nodeHeight = 0, ...props }: MinerProps) {
+export function Miner({
+  status = "green",
+  nodeHeight = 0,
+  ...props
+}: MinerProps) {
   const chassisRef = useRef<Group>(null);
   const registryRef = useRef<AtomRegistry.AtomRegistry | null>(null);
 
@@ -41,7 +45,10 @@ export function Miner({ status = "green", nodeHeight = 0, ...props }: MinerProps
     <group {...props}>
       <group ref={chassisRef}>
         <group position={[0, 0.42 + nodeHeight, 0]}>
-          <MinerFoundation registry={registry} groundDistance={0.42 + nodeHeight} />
+          <MinerFoundation
+            registry={registry}
+            groundDistance={0.42 + nodeHeight}
+          />
           <MinerTop position={[0, 0.105, 0]} status={status} />
         </group>
       </group>

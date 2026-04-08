@@ -1,11 +1,11 @@
-import { useRef, useCallback, useEffect } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Duration, Effect, Fiber, Layer, ManagedRuntime } from "effect";
 import { Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { useCallback, useEffect, useRef } from "react";
 import type { Group, Mesh } from "three";
 import { MathUtils, MeshStandardMaterial } from "three";
-import { MAT, type ModelProps } from "./colors";
 import { Antenna } from "./Antenna";
+import { MAT, type ModelProps } from "./colors";
 
 // ── Dark industrial palette ─────────────────────────────────
 const HULL_DARK = "#2d3550";
@@ -41,7 +41,9 @@ const rocketMotionAtom = Atom.make<RocketMotionState>({
 
 const getBounceDrop = (bounce: number) =>
   bounce < 1.5
-    ? BOUNCE_AMP * Math.exp(-BOUNCE_DECAY * bounce) * Math.sin(BOUNCE_FREQ * bounce)
+    ? BOUNCE_AMP *
+      Math.exp(-BOUNCE_DECAY * bounce) *
+      Math.sin(BOUNCE_FREQ * bounce)
     : 0;
 
 const getDeployTarget = (phase: RocketPhase, timer: number) => {
@@ -85,7 +87,8 @@ const SKIRT_Y3 = SKIRT_Y2 + SKIRT_TRANS_H;
 const BODY_BOT = SKIRT_Y3;
 const BODY_TOP = BODY_BOT + BODY_H;
 const hullR = (y: number) =>
-  BODY_RB + (BODY_RT - BODY_RB) * MathUtils.clamp((y - BODY_BOT) / BODY_H, 0, 1);
+  BODY_RB +
+  (BODY_RT - BODY_RB) * MathUtils.clamp((y - BODY_BOT) / BODY_H, 0, 1);
 
 // Seam at body midpoint
 const SEAM_H = 0.02;
@@ -100,12 +103,12 @@ const UPPER_Y = (SEAM_HI + BODY_TOP) / 2;
 const BODY_APO = hullR(SEAM_Y) * Math.cos(Math.PI / BODY_N);
 
 // ── Accent bands (tapered to hull profile) ──────────────────
-const ACCENT_Y = 0.10;
+const ACCENT_Y = 0.1;
 const ACCENT_H = 0.03;
 const ACCENT_R_TOP = hullR(ACCENT_Y + ACCENT_H / 2) + 0.005;
 const ACCENT_R_BOT = hullR(ACCENT_Y - ACCENT_H / 2) + 0.005;
 const UACCENT_Y = 0.55;
-const UACCENT_H = 0.010;
+const UACCENT_H = 0.01;
 const UACCENT_R_TOP = hullR(UACCENT_Y + UACCENT_H / 2) + 0.004;
 const UACCENT_R_BOT = hullR(UACCENT_Y - UACCENT_H / 2) + 0.004;
 
@@ -129,7 +132,6 @@ const ANTENNA_CY = BODY_TOP + BEVEL_H + STEP1_H + STEP2_H + STEP3_H + 0.02;
 const BASE_R = 1.05;
 
 // ── Leg geometry (MechLeg md fork) ──────────────────────────
-const LEG_COUNT = 4;
 const LEG_EX = 0.1;
 const LEG_EY = -0.06;
 const LEG_FX = 0.15;
@@ -152,7 +154,12 @@ const EFFECT_Y = 0.05;
 
 // ── Detail placement angles (octagon faces after -π/8 rotation) ─
 // Face normals: 0, π/4, π/2, 3π/4, π, 5π/4, 3π/2, 7π/4
-const WIN_ANGLES = [Math.PI / 4, (3 * Math.PI) / 4, (5 * Math.PI) / 4, (7 * Math.PI) / 4];
+const WIN_ANGLES = [
+  Math.PI / 4,
+  (3 * Math.PI) / 4,
+  (5 * Math.PI) / 4,
+  (7 * Math.PI) / 4,
+];
 const LEG_ANGLES = [
   Math.PI / 4,
   (3 * Math.PI) / 4,
@@ -271,7 +278,11 @@ function RocketLeg({
       </group>
 
       {/* ── Lower arm (yoke) ── */}
-      <group ref={lowerRef} position={[LEG_EX, LEG_EY, 0]} rotation={[0, 0, LEG_LA]}>
+      <group
+        ref={lowerRef}
+        position={[LEG_EX, LEG_EY, 0]}
+        rotation={[0, 0, LEG_LA]}
+      >
         <mesh position={[LEG_LL / 2, 0, LEG_GAP]}>
           <boxGeometry args={[LEG_LL, 0.035, 0.022]} />
           <meshStandardMaterial color={HULL_DARK} {...MAT} roughness={0.6} />
@@ -336,7 +347,9 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
   const flameRef = useRef<Group>(null);
   const smokeRefs = useRef<Mesh[]>([]);
   const registryRef = useRef<AtomRegistry.AtomRegistry | null>(null);
-  const runtimeRef = useRef<ManagedRuntime.ManagedRuntime<never, never> | null>(null);
+  const runtimeRef = useRef<ManagedRuntime.ManagedRuntime<never, never> | null>(
+    null,
+  );
   const autoLaunchFiberRef = useRef<Fiber.Fiber<void, never> | null>(null);
   const launchRef = useRef<() => void>(() => {});
 
@@ -382,7 +395,7 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
     (delay: Duration.Input) => {
       clearAutoLaunch();
       autoLaunchFiberRef.current = runtime.runFork(
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           yield* Effect.sleep(delay);
           yield* Effect.sync(() => {
             autoLaunchFiberRef.current = null;
@@ -445,7 +458,10 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
       const s = smoke.scale.x + delta * 2;
       smoke.scale.setScalar(s);
       if (smoke.material instanceof MeshStandardMaterial) {
-        smoke.material.opacity = Math.max(0, smoke.material.opacity - delta * 0.8);
+        smoke.material.opacity = Math.max(
+          0,
+          smoke.material.opacity - delta * 0.8,
+        );
         if (smoke.material.opacity <= 0) {
           smoke.visible = false;
         }
@@ -494,8 +510,7 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
           }
         }
 
-        rocketRef.current.rotation.z =
-          Math.sin(t * 12) * 0.01 * (1 - progress);
+        rocketRef.current.rotation.z = Math.sin(t * 12) * 0.01 * (1 - progress);
 
         if (progress >= 1) {
           rocketRef.current.visible = false;
@@ -538,7 +553,11 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
               smoke.visible = true;
               smoke.scale.setScalar(0.15);
               const a = Math.random() * Math.PI * 2;
-              smoke.position.set(Math.cos(a) * 0.3, EFFECT_Y, Math.sin(a) * 0.3);
+              smoke.position.set(
+                Math.cos(a) * 0.3,
+                EFFECT_Y,
+                Math.sin(a) * 0.3,
+              );
               if (smoke.material instanceof MeshStandardMaterial)
                 smoke.material.opacity = 0.5;
               break;
@@ -546,8 +565,7 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
           }
         }
 
-        rocketRef.current.rotation.z =
-          Math.sin(t * 8) * 0.015 * (1 - progress);
+        rocketRef.current.rotation.z = Math.sin(t * 8) * 0.015 * (1 - progress);
 
         if (progress >= 1) {
           rocketRef.current.position.y = LANDING_Y;
@@ -592,8 +610,15 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
       </mesh>
       {/* Orange accent ring — openEnded to avoid cap z-fight */}
       <mesh position={[0, 0.006, 0]}>
-        <cylinderGeometry args={[BASE_R + 0.01, BASE_R + 0.05, 0.012, 16, 1, true]} />
-        <meshStandardMaterial color={ACCENT} {...MAT} roughness={0.5} side={2} />
+        <cylinderGeometry
+          args={[BASE_R + 0.01, BASE_R + 0.05, 0.012, 16, 1, true]}
+        />
+        <meshStandardMaterial
+          color={ACCENT}
+          {...MAT}
+          roughness={0.5}
+          side={2}
+        />
       </mesh>
       {/* Landing cross markers — clearly above pad surface */}
       <mesh position={[0, 0.016, 0]}>
@@ -608,35 +633,34 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
       {/* ═══ Lander ══════════════════════════════════════ */}
       <group ref={rocketRef}>
         {/* ── 4 × RocketLeg (at diagonal faces) ── */}
-        {LEG_ANGLES.map((angle, i) => (
+        {LEG_ANGLES.map((angle) => (
           <group
-            key={`leg-${i}`}
-            position={[
-              Math.sin(angle) * BODY_RB,
-              0,
-              Math.cos(angle) * BODY_RB,
-            ]}
+            key={`leg-${angle.toFixed(3)}`}
+            position={[Math.sin(angle) * BODY_RB, 0, Math.cos(angle) * BODY_RB]}
           >
-            <RocketLeg
-              direction={angle}
-              registry={registry}
-            />
+            <RocketLeg direction={angle} registry={registry} />
           </group>
         ))}
 
         {/* ── Bottom skirt ── */}
         <mesh position={[0, (SKIRT_Y1 + SKIRT_Y2) / 2, 0]} rotation={BODY_ROT}>
-          <cylinderGeometry args={[SKIRT_R_MID, SKIRT_R_OUT, SKIRT_MAIN_H, BODY_N]} />
+          <cylinderGeometry
+            args={[SKIRT_R_MID, SKIRT_R_OUT, SKIRT_MAIN_H, BODY_N]}
+          />
           <meshStandardMaterial color={HULL_DARK} {...MAT} roughness={0.65} />
         </mesh>
         {/* Skirt bottom bevel */}
         <mesh position={[0, (SKIRT_Y0 + SKIRT_Y1) / 2, 0]} rotation={BODY_ROT}>
-          <cylinderGeometry args={[SKIRT_R_OUT, SKIRT_R_MID, SKIRT_BEVEL_H, BODY_N]} />
+          <cylinderGeometry
+            args={[SKIRT_R_OUT, SKIRT_R_MID, SKIRT_BEVEL_H, BODY_N]}
+          />
           <meshStandardMaterial color={HULL_DARK} {...MAT} roughness={0.6} />
         </mesh>
         {/* Skirt-to-body bevel */}
         <mesh position={[0, (SKIRT_Y2 + SKIRT_Y3) / 2, 0]} rotation={BODY_ROT}>
-          <cylinderGeometry args={[BODY_RB, SKIRT_R_MID, SKIRT_TRANS_H, BODY_N]} />
+          <cylinderGeometry
+            args={[BODY_RB, SKIRT_R_MID, SKIRT_TRANS_H, BODY_N]}
+          />
           <meshStandardMaterial color={HULL_BRIGHT} {...MAT} roughness={0.45} />
         </mesh>
 
@@ -648,7 +672,14 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
 
         {/* ── Horizontal seam groove ── */}
         <mesh position={[0, SEAM_Y, 0]} rotation={BODY_ROT}>
-          <cylinderGeometry args={[hullR(SEAM_HI) - SEAM_INSET, hullR(SEAM_LO) - SEAM_INSET, SEAM_H, BODY_N]} />
+          <cylinderGeometry
+            args={[
+              hullR(SEAM_HI) - SEAM_INSET,
+              hullR(SEAM_LO) - SEAM_INSET,
+              SEAM_H,
+              BODY_N,
+            ]}
+          />
           <meshStandardMaterial color={HULL_MID} {...MAT} roughness={0.55} />
         </mesh>
 
@@ -660,13 +691,17 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
 
         {/* ── Bottom accent band ── */}
         <mesh position={[0, ACCENT_Y, 0]} rotation={BODY_ROT}>
-          <cylinderGeometry args={[ACCENT_R_TOP, ACCENT_R_BOT, ACCENT_H, BODY_N]} />
+          <cylinderGeometry
+            args={[ACCENT_R_TOP, ACCENT_R_BOT, ACCENT_H, BODY_N]}
+          />
           <meshStandardMaterial color={ACCENT} {...MAT} roughness={0.5} />
         </mesh>
 
         {/* ── Upper accent line ── */}
         <mesh position={[0, UACCENT_Y, 0]} rotation={BODY_ROT}>
-          <cylinderGeometry args={[UACCENT_R_TOP, UACCENT_R_BOT, UACCENT_H, BODY_N]} />
+          <cylinderGeometry
+            args={[UACCENT_R_TOP, UACCENT_R_BOT, UACCENT_H, BODY_N]}
+          />
           <meshStandardMaterial color={HULL_LIGHT} {...MAT} roughness={0.5} />
         </mesh>
 
@@ -704,19 +739,27 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
           const apo = BODY_APO + 0.005;
           return (
             <group
-              key={`win-${i}`}
+              key={`win-${a.toFixed(3)}`}
               position={[Math.sin(a) * apo, 0.36, Math.cos(a) * apo]}
               rotation={[0, a, 0]}
             >
               {/* Subtle outer frame — thin border flush with hull */}
               <mesh position={[0, 0, 0.001]}>
                 <boxGeometry args={[0.14, 0.14, 0.006]} />
-                <meshStandardMaterial color={HULL_MID} {...MAT} roughness={0.55} />
+                <meshStandardMaterial
+                  color={HULL_MID}
+                  {...MAT}
+                  roughness={0.55}
+                />
               </mesh>
               {/* Deep recess cavity */}
               <mesh position={[0, 0, -0.004]}>
                 <boxGeometry args={[0.11, 0.11, 0.012]} />
-                <meshStandardMaterial color={HULL_DARK} {...MAT} roughness={0.75} />
+                <meshStandardMaterial
+                  color={HULL_DARK}
+                  {...MAT}
+                  roughness={0.75}
+                />
               </mesh>
               {/* Glass — thin, recessed inside cavity */}
               <mesh position={[0, 0, -0.002]}>
@@ -730,7 +773,7 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
                 />
               </mesh>
               {/* Inner glow accent — warm light visible through glass */}
-              <mesh position={[0, -0.006, 0.000]}>
+              <mesh position={[0, -0.006, 0.0]}>
                 <boxGeometry args={[0.055, 0.03, 0.002]} />
                 <meshStandardMaterial
                   color={WIN_GLOW}
@@ -745,12 +788,20 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
                 <group position={[0, -0.11, 0.002]}>
                   <mesh>
                     <boxGeometry args={[0.08, 0.03, 0.008]} />
-                    <meshStandardMaterial color={HULL_DARK} {...MAT} roughness={0.7} />
+                    <meshStandardMaterial
+                      color={HULL_DARK}
+                      {...MAT}
+                      roughness={0.7}
+                    />
                   </mesh>
-                  {[-0.007, 0, 0.007].map((y, j) => (
-                    <mesh key={j} position={[0, y, 0.005]}>
+                  {[-0.007, 0, 0.007].map((y) => (
+                    <mesh key={`vent-${y.toFixed(3)}`} position={[0, y, 0.005]}>
                       <boxGeometry args={[0.06, 0.003, 0.004]} />
-                      <meshStandardMaterial color={HULL_MID} {...MAT} roughness={0.5} />
+                      <meshStandardMaterial
+                        color={HULL_MID}
+                        {...MAT}
+                        roughness={0.5}
+                      />
                     </mesh>
                   ))}
                 </group>
@@ -766,7 +817,7 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
             <group
               position={[
                 Math.sin(DOOR_ANGLE) * apo,
-                0.30,
+                0.3,
                 Math.cos(DOOR_ANGLE) * apo,
               ]}
               rotation={[0, DOOR_ANGLE, 0]}
@@ -774,37 +825,65 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
               {/* L1: Outer frame — slightly raised from hull */}
               <mesh position={[0, 0, 0.008]}>
                 <boxGeometry args={[0.34, 0.44, 0.026]} />
-                <meshStandardMaterial color={HULL_MID} {...MAT} roughness={0.6} />
+                <meshStandardMaterial
+                  color={HULL_MID}
+                  {...MAT}
+                  roughness={0.6}
+                />
               </mesh>
               {/* L2: Deep recess — dark gap behind panel */}
               <mesh position={[0, 0, 0.001]}>
                 <boxGeometry args={[0.29, 0.39, 0.012]} />
-                <meshStandardMaterial color={HULL_DARK} {...MAT} roughness={0.7} />
+                <meshStandardMaterial
+                  color={HULL_DARK}
+                  {...MAT}
+                  roughness={0.7}
+                />
               </mesh>
               {/* L3: Inner panel — recessed door surface */}
-              <mesh position={[0, 0, 0.010]}>
+              <mesh position={[0, 0, 0.01]}>
                 <boxGeometry args={[0.24, 0.33, 0.012]} />
-                <meshStandardMaterial color={DOOR_PANEL} {...MAT} roughness={0.45} />
+                <meshStandardMaterial
+                  color={DOOR_PANEL}
+                  {...MAT}
+                  roughness={0.45}
+                />
               </mesh>
               {/* L4: Inset border — raised frame within panel */}
               <mesh position={[0, -0.04, 0.017]}>
                 <boxGeometry args={[0.17, 0.16, 0.006]} />
-                <meshStandardMaterial color={HULL_LIGHT} {...MAT} roughness={0.5} />
+                <meshStandardMaterial
+                  color={HULL_LIGHT}
+                  {...MAT}
+                  roughness={0.5}
+                />
               </mesh>
               {/* L5: Inset recess — dark detail inside border */}
               <mesh position={[0, -0.04, 0.018]}>
                 <boxGeometry args={[0.13, 0.12, 0.004]} />
-                <meshStandardMaterial color={HULL_DARK} {...MAT} roughness={0.65} />
+                <meshStandardMaterial
+                  color={HULL_DARK}
+                  {...MAT}
+                  roughness={0.65}
+                />
               </mesh>
               {/* Window frame (upper portion) */}
               <mesh position={[0, 0.06, 0.017]}>
                 <boxGeometry args={[0.14, 0.14, 0.008]} />
-                <meshStandardMaterial color={HULL_MID} {...MAT} roughness={0.6} />
+                <meshStandardMaterial
+                  color={HULL_MID}
+                  {...MAT}
+                  roughness={0.6}
+                />
               </mesh>
               {/* Window glass */}
-              <mesh position={[0, 0.06, 0.020]}>
-                <boxGeometry args={[0.10, 0.10, 0.006]} />
-                <meshStandardMaterial color={WIN_DARK} {...MAT} roughness={0.8} />
+              <mesh position={[0, 0.06, 0.02]}>
+                <boxGeometry args={[0.1, 0.1, 0.006]} />
+                <meshStandardMaterial
+                  color={WIN_DARK}
+                  {...MAT}
+                  roughness={0.8}
+                />
               </mesh>
               {/* Window glow */}
               <mesh position={[0, 0.055, 0.026]}>
@@ -820,20 +899,28 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
               {/* Chevron marks above door */}
               <mesh position={[-0.03, 0.19, 0.012]} rotation={[0, 0, 0.4]}>
                 <boxGeometry args={[0.04, 0.008, 0.006]} />
-                <meshStandardMaterial color={HULL_LIGHT} {...MAT} roughness={0.55} />
+                <meshStandardMaterial
+                  color={HULL_LIGHT}
+                  {...MAT}
+                  roughness={0.55}
+                />
               </mesh>
               <mesh position={[0.03, 0.19, 0.012]} rotation={[0, 0, -0.4]}>
                 <boxGeometry args={[0.04, 0.008, 0.006]} />
-                <meshStandardMaterial color={HULL_LIGHT} {...MAT} roughness={0.55} />
+                <meshStandardMaterial
+                  color={HULL_LIGHT}
+                  {...MAT}
+                  roughness={0.55}
+                />
               </mesh>
             </group>
           );
         })()}
 
         {/* ── Fuel tanks ── */}
-        {TANK_ANGLES.map((a, i) => (
+        {TANK_ANGLES.map((a) => (
           <group
-            key={`tank-${i}`}
+            key={`tank-${a.toFixed(3)}`}
             position={[
               Math.sin(a) * (BODY_APO + 0.06),
               0.36,
@@ -844,17 +931,29 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
             {/* Main cylinder */}
             <mesh>
               <cylinderGeometry args={[0.06, 0.06, 0.26, 10]} />
-              <meshStandardMaterial color={TANK_RED} {...MAT} roughness={0.45} />
+              <meshStandardMaterial
+                color={TANK_RED}
+                {...MAT}
+                roughness={0.45}
+              />
             </mesh>
             {/* Top cap */}
             <mesh position={[0, 0.14, 0]}>
               <cylinderGeometry args={[0.025, 0.06, 0.035, 10]} />
-              <meshStandardMaterial color={TANK_DARK} {...MAT} roughness={0.5} />
+              <meshStandardMaterial
+                color={TANK_DARK}
+                {...MAT}
+                roughness={0.5}
+              />
             </mesh>
             {/* Bottom cap */}
             <mesh position={[0, -0.14, 0]}>
               <cylinderGeometry args={[0.06, 0.025, 0.035, 10]} />
-              <meshStandardMaterial color={TANK_DARK} {...MAT} roughness={0.5} />
+              <meshStandardMaterial
+                color={TANK_DARK}
+                {...MAT}
+                roughness={0.5}
+              />
             </mesh>
             {/* Mounting band */}
             <mesh position={[0, 0.04, 0]}>
@@ -903,7 +1002,7 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
       {/* ═══ Smoke puffs ═════════════════════════════════ */}
       {Array.from({ length: SMOKE_COUNT }, (_, i) => (
         <mesh
-          key={i}
+          key={`smoke-${(i / Math.max(1, SMOKE_COUNT)).toFixed(3)}`}
           ref={(el) => {
             if (el) smokeRefs.current[i] = el;
           }}

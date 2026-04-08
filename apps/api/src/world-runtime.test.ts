@@ -1,12 +1,39 @@
 import { expect, test } from "bun:test";
 import type { ActorContext } from "@refactory/contracts/auth";
 import type { WorldRuntimeSnapshot } from "@refactory/contracts/runtime";
-import { applyWorldCommand, executeTransport, progressMachineWork, recomputePowerState } from "./world-runtime.ts";
+import { Effect, Match } from "effect";
+import {
+  applyWorldCommand,
+  executeWorldTransport,
+  progressWorldMachineWork,
+  recomputeWorldPowerState,
+} from "./world-runtime.ts";
+
+const runSync = Effect.runSync;
+
+const fail = (message: string): never => {
+  throw new Error(message);
+};
 
 const actor: ActorContext = {
   displayName: "Host",
   publicKey: "host-public-key",
 };
+
+const applyWorldCommandSync = (
+  snapshot: WorldRuntimeSnapshot,
+  actor: ActorContext,
+  command: Parameters<typeof applyWorldCommand>[2],
+) => runSync(applyWorldCommand(snapshot, actor, command));
+
+const progressMachineWork = (snapshot: WorldRuntimeSnapshot) =>
+  runSync(progressWorldMachineWork(snapshot));
+
+const executeTransport = (snapshot: WorldRuntimeSnapshot) =>
+  runSync(executeWorldTransport(snapshot));
+
+const recomputePowerState = (snapshot: WorldRuntimeSnapshot) =>
+  runSync(recomputeWorldPowerState(snapshot));
 
 const buildTiles = () =>
   Array.from({ length: 12 }, (_, y) =>
@@ -14,7 +41,7 @@ const buildTiles = () =>
       altitude: 0,
       buildable: true,
       coordinate: { x, y },
-    }))
+    })),
   ).flat();
 
 const baseSnapshot = (): WorldRuntimeSnapshot => ({
@@ -22,7 +49,12 @@ const baseSnapshot = (): WorldRuntimeSnapshot => ({
     {
       _tag: "SlotContainer",
       containerId: "asset:BAR-001:inventory",
-      owner: { actorPublicKey: actor.publicKey, kind: "asset", ownerId: "BAR-001", role: "inventory" },
+      owner: {
+        actorPublicKey: actor.publicKey,
+        kind: "asset",
+        ownerId: "BAR-001",
+        role: "inventory",
+      },
       slotCount: 24,
       slots: Array.from({ length: 24 }, (_, slotIndex) => ({ slotIndex })),
     },
@@ -32,12 +64,22 @@ const baseSnapshot = (): WorldRuntimeSnapshot => ({
       capacity: undefined,
       containerId: "system:modular-storage",
       entries: [],
-      owner: { kind: "system", ownerId: "system:modular-storage", role: "quota_storage" },
+      owner: {
+        kind: "system",
+        ownerId: "system:modular-storage",
+        role: "quota_storage",
+      },
     },
   ],
   deltaSequence: 0,
   generators: [],
-  inventories: [{ actorPublicKey: actor.publicKey, assetId: "BAR-001", containerId: "asset:BAR-001:inventory" }],
+  inventories: [
+    {
+      actorPublicKey: actor.publicKey,
+      assetId: "BAR-001",
+      containerId: "asset:BAR-001:inventory",
+    },
+  ],
   lastTickAt: "2026-04-06T00:00:00.000Z",
   machines: [],
   mode: "solo",
@@ -91,11 +133,18 @@ const baseSnapshot = (): WorldRuntimeSnapshot => ({
   worldId: "00000000-0000-0000-0000-000000000001",
 });
 
-const withInventoryStack = (snapshot: WorldRuntimeSnapshot, slotIndex: number, itemId: string, quantity: number): WorldRuntimeSnapshot => {
+const withInventoryStack = (
+  snapshot: WorldRuntimeSnapshot,
+  slotIndex: number,
+  itemId: string,
+  quantity: number,
+): WorldRuntimeSnapshot => {
   const inventory = snapshot.containers[0];
 
-  if (inventory === undefined || inventory._tag !== "SlotContainer") {
-    throw new Error("expected slot inventory container");
+  switch (true) {
+    case inventory === undefined:
+    case inventory?._tag !== "SlotContainer":
+      throw new Error("expected slot inventory container");
   }
 
   return {
@@ -103,9 +152,14 @@ const withInventoryStack = (snapshot: WorldRuntimeSnapshot, slotIndex: number, i
     containers: [
       {
         ...inventory,
-        slots: inventory.slots.map((slot) =>
-          slot.slotIndex === slotIndex ? { slotIndex, stack: { itemId, quantity } } : slot
-        ),
+        slots: inventory.slots.map((slot) => {
+          switch (slot.slotIndex) {
+            case slotIndex:
+              return { slotIndex, stack: { itemId, quantity } };
+            default:
+              return slot;
+          }
+        }),
       },
       ...snapshot.containers.slice(1),
     ],
@@ -114,7 +168,7 @@ const withInventoryStack = (snapshot: WorldRuntimeSnapshot, slotIndex: number, i
 
 test("applyWorldCommand places a smelter and consumes the build item", () => {
   const snapshot = withInventoryStack(baseSnapshot(), 0, "smelter_v1", 1);
-  const result = applyWorldCommand(snapshot, actor, {
+  const result = applyWorldCommandSync(snapshot, actor, {
     _tag: "PlaceBuilding",
     buildableId: "smelter_v1",
     commandId: "00000000-0000-0000-0000-000000000010",
@@ -123,13 +177,21 @@ test("applyWorldCommand places a smelter and consumes the build item", () => {
   });
 
   expect(result.pendingReceipt._tag).toBe("accepted");
-  expect(result.snapshot.objects?.some((object) => object.buildableId === "smelter_v1")).toBe(true);
-  expect(result.snapshot.machines.some((machine) => machine.kind === "smelter_v1")).toBe(true);
+  expect(
+    result.snapshot.objects?.some(
+      (object) => object.buildableId === "smelter_v1",
+    ),
+  ).toBe(true);
+  expect(
+    result.snapshot.machines.some((machine) => machine.kind === "smelter_v1"),
+  ).toBe(true);
 
   const inventory = result.snapshot.containers[0];
   expect(inventory).toBeDefined();
-  if (inventory === undefined || inventory._tag !== "SlotContainer") {
-    throw new Error("expected inventory container");
+  switch (true) {
+    case inventory === undefined:
+    case inventory?._tag !== "SlotContainer":
+      throw new Error("expected inventory container");
   }
 
   expect(inventory.slots[0]?.stack).toBeUndefined();
@@ -137,7 +199,7 @@ test("applyWorldCommand places a smelter and consumes the build item", () => {
 
 test("applyWorldCommand rejects miner placement off a resource node", () => {
   const snapshot = withInventoryStack(baseSnapshot(), 0, "miner_v1", 1);
-  const result = applyWorldCommand(snapshot, actor, {
+  const result = applyWorldCommandSync(snapshot, actor, {
     _tag: "PlaceBuilding",
     buildableId: "miner_v1",
     commandId: "00000000-0000-0000-0000-000000000011",
@@ -154,36 +216,51 @@ test("applyWorldCommand rejects miner placement off a resource node", () => {
 });
 
 test("applyWorldCommand places a belt run between placed machines", () => {
-  const seeded = withInventoryStack(withInventoryStack(withInventoryStack(baseSnapshot(), 0, "miner_v1", 1), 1, "smelter_v1", 1), 2, "belt_v1", 4);
-  const minerPlaced = applyWorldCommand(seeded, actor, {
+  const seeded = withInventoryStack(
+    withInventoryStack(
+      withInventoryStack(baseSnapshot(), 0, "miner_v1", 1),
+      1,
+      "smelter_v1",
+      1,
+    ),
+    2,
+    "belt_v1",
+    4,
+  );
+  const minerPlaced = applyWorldCommandSync(seeded, actor, {
     _tag: "PlaceBuilding",
     buildableId: "miner_v1",
     commandId: "00000000-0000-0000-0000-000000000012",
     origin: { x: 2, y: 5 },
     rotation: "east",
   }).snapshot;
-  const smelterPlaced = applyWorldCommand(minerPlaced, actor, {
+  const smelterPlaced = applyWorldCommandSync(minerPlaced, actor, {
     _tag: "PlaceBuilding",
     buildableId: "smelter_v1",
     commandId: "00000000-0000-0000-0000-000000000013",
     origin: { x: 5, y: 5 },
     rotation: "east",
   }).snapshot;
-  const miner = smelterPlaced.objects?.find((object) => object.buildableId === "miner_v1");
-  const smelter = smelterPlaced.objects?.find((object) => object.buildableId === "smelter_v1");
+  const miner = smelterPlaced.objects?.find(
+    (object) => object.buildableId === "miner_v1",
+  );
+  const smelter = smelterPlaced.objects?.find(
+    (object) => object.buildableId === "smelter_v1",
+  );
+  const placedObjects = Match.value({ miner, smelter }).pipe(
+    Match.when(
+      { miner: Match.defined, smelter: Match.defined },
+      ({ miner, smelter }) => ({ miner, smelter }),
+    ),
+    Match.orElse(() => fail("expected placed miner and smelter")),
+  );
 
-  expect(miner).toBeDefined();
-  expect(smelter).toBeDefined();
-  if (miner === undefined || smelter === undefined) {
-    throw new Error("expected placed miner and smelter");
-  }
-
-  const result = applyWorldCommand(smelterPlaced, actor, {
+  const result = applyWorldCommandSync(smelterPlaced, actor, {
     _tag: "PlaceBeltRun",
     commandId: "00000000-0000-0000-0000-000000000014",
-    destinationObjectId: smelter.objectId,
+    destinationObjectId: placedObjects.smelter.objectId,
     destinationPortId: "in-0",
-    sourceObjectId: miner.objectId,
+    sourceObjectId: placedObjects.miner.objectId,
     sourcePortId: "out-0",
   });
 
@@ -196,118 +273,180 @@ test("applyWorldCommand places a belt run between placed machines", () => {
 });
 
 test("applyWorldCommand removes a building, attached belts, and refunds items", () => {
-  const seeded = withInventoryStack(withInventoryStack(withInventoryStack(baseSnapshot(), 0, "miner_v1", 1), 1, "smelter_v1", 1), 2, "belt_v1", 4);
-  const minerPlaced = applyWorldCommand(seeded, actor, {
+  const seeded = withInventoryStack(
+    withInventoryStack(
+      withInventoryStack(baseSnapshot(), 0, "miner_v1", 1),
+      1,
+      "smelter_v1",
+      1,
+    ),
+    2,
+    "belt_v1",
+    4,
+  );
+  const minerPlaced = applyWorldCommandSync(seeded, actor, {
     _tag: "PlaceBuilding",
     buildableId: "miner_v1",
     commandId: "00000000-0000-0000-0000-000000000015",
     origin: { x: 2, y: 5 },
     rotation: "east",
   }).snapshot;
-  const smelterPlaced = applyWorldCommand(minerPlaced, actor, {
+  const smelterPlaced = applyWorldCommandSync(minerPlaced, actor, {
     _tag: "PlaceBuilding",
     buildableId: "smelter_v1",
     commandId: "00000000-0000-0000-0000-000000000016",
     origin: { x: 5, y: 5 },
     rotation: "east",
   }).snapshot;
-  const miner = smelterPlaced.objects?.find((object) => object.buildableId === "miner_v1");
-  const smelter = smelterPlaced.objects?.find((object) => object.buildableId === "smelter_v1");
+  const miner = smelterPlaced.objects?.find(
+    (object) => object.buildableId === "miner_v1",
+  );
+  const smelter = smelterPlaced.objects?.find(
+    (object) => object.buildableId === "smelter_v1",
+  );
+  const placedObjects = Match.value({ miner, smelter }).pipe(
+    Match.when(
+      { miner: Match.defined, smelter: Match.defined },
+      ({ miner, smelter }) => ({ miner, smelter }),
+    ),
+    Match.orElse(() => fail("expected placed miner and smelter")),
+  );
 
-  if (miner === undefined || smelter === undefined) {
-    throw new Error("expected placed miner and smelter");
-  }
-
-  const belted = applyWorldCommand(smelterPlaced, actor, {
+  const belted = applyWorldCommandSync(smelterPlaced, actor, {
     _tag: "PlaceBeltRun",
     commandId: "00000000-0000-0000-0000-000000000017",
-    destinationObjectId: smelter.objectId,
+    destinationObjectId: placedObjects.smelter.objectId,
     destinationPortId: "in-0",
-    sourceObjectId: miner.objectId,
+    sourceObjectId: placedObjects.miner.objectId,
     sourcePortId: "out-0",
   }).snapshot;
-  const removed = applyWorldCommand(belted, actor, {
+  const removed = applyWorldCommandSync(belted, actor, {
     _tag: "RemoveBuilding",
     commandId: "00000000-0000-0000-0000-000000000018",
-    objectId: smelter.objectId,
+    objectId: placedObjects.smelter.objectId,
   });
 
   expect(removed.pendingReceipt._tag).toBe("accepted");
-  expect(removed.snapshot.objects?.some((object) => object.objectId === smelter.objectId)).toBe(false);
+  expect(
+    removed.snapshot.objects?.some(
+      (object) => object.objectId === placedObjects.smelter.objectId,
+    ),
+  ).toBe(false);
   expect(removed.snapshot.transportLanes).toHaveLength(0);
 
   const inventory = removed.snapshot.containers[0];
-  if (inventory === undefined || inventory._tag !== "SlotContainer") {
-    throw new Error("expected inventory container");
+  switch (true) {
+    case inventory === undefined:
+    case inventory?._tag !== "SlotContainer":
+      throw new Error("expected inventory container");
   }
 
-  expect(inventory.slots.some((slot) => slot.stack?.itemId === "smelter_v1")).toBe(true);
-  expect(inventory.slots.some((slot) => slot.stack?.itemId === "belt_v1" && slot.stack.quantity >= 2)).toBe(true);
+  expect(
+    inventory.slots.some((slot) => slot.stack?.itemId === "smelter_v1"),
+  ).toBe(true);
+  expect(
+    inventory.slots.some(
+      (slot) => slot.stack?.itemId === "belt_v1" && slot.stack.quantity >= 2,
+    ),
+  ).toBe(true);
 });
 
 test("applyWorldCommand updates processor recipe and returns incompatible outputs to inventory", () => {
   const snapshot = withInventoryStack(baseSnapshot(), 0, "processor", 1);
-  const placed = applyWorldCommand(snapshot, actor, {
+  const placed = applyWorldCommandSync(snapshot, actor, {
     _tag: "PlaceBuilding",
     buildableId: "processor",
     commandId: "00000000-0000-0000-0000-000000000019",
     origin: { x: 4, y: 6 },
     rotation: "east",
   }).snapshot;
-  const processor = placed.objects?.find((object) => object.buildableId === "processor");
-
-  if (processor?.machineId === undefined) {
-    throw new Error("expected placed processor machine");
-  }
-
-  const outputContainerId = processor.containerIds[1];
-  if (outputContainerId === undefined) {
-    throw new Error("expected processor output container");
-  }
-
-  const processorOutput = placed.containers.find((container) => container.containerId === outputContainerId);
-  if (processorOutput === undefined || processorOutput._tag !== "TypedContainer") {
-    throw new Error("expected processor output container");
-  }
+  const processor = placed.objects?.find(
+    (object) => object.buildableId === "processor",
+  );
+  const processorOutput = Match.value(processor?.containerIds[1]).pipe(
+    Match.when(Match.undefined, () => undefined),
+    Match.orElse((outputContainerId) =>
+      placed.containers.find(
+        (container) => container.containerId === outputContainerId,
+      ),
+    ),
+  );
+  const placedProcessor = Match.value({
+    outputContainerId: processor?.containerIds[1],
+    processor,
+    processorOutput,
+  }).pipe(
+    Match.when(
+      {
+        outputContainerId: Match.defined,
+        processor: { machineId: Match.defined },
+        processorOutput: { _tag: "TypedContainer" },
+      },
+      ({ outputContainerId, processor, processorOutput }) => ({
+        outputContainerId,
+        processor,
+        processorOutput,
+      }),
+    ),
+    Match.orElse(() => fail("expected placed processor machine and output")),
+  );
 
   const seededOutput: WorldRuntimeSnapshot = {
     ...placed,
-    containers: placed.containers.map((container) =>
-      container.containerId === outputContainerId
-        ? {
-            ...processorOutput,
+    containers: placed.containers.map((container) => {
+      switch (container.containerId) {
+        case placedProcessor.outputContainerId:
+          return {
+            ...placedProcessor.processorOutput,
             entries: [{ itemId: "iron_plate", quantity: 1 }],
-          }
-        : container
-    ),
-    machines: placed.machines.map((machine) =>
-      machine.machineId === processor.machineId
-        ? {
+          };
+        default:
+          return container;
+      }
+    }),
+    machines: placed.machines.map((machine) => {
+      switch (machine.machineId) {
+        case placedProcessor.processor.machineId:
+          return {
             ...machine,
             progress: 0.5,
             recipeId: "iron_plate",
-          }
-        : machine
-    ),
+          };
+        default:
+          return machine;
+      }
+    }),
   };
 
-  const result = applyWorldCommand(seededOutput, actor, {
+  const result = applyWorldCommandSync(seededOutput, actor, {
     _tag: "SetMachineRecipe",
     commandId: "00000000-0000-0000-0000-000000000020",
-    machineId: processor.machineId,
+    machineId: placedProcessor.processor.machineId,
     recipeId: "iron_rod",
   });
 
   expect(result.pendingReceipt._tag).toBe("accepted");
-  expect(result.snapshot.machines.find((machine) => machine.machineId === processor.machineId)?.recipeId).toBe("iron_rod");
-  expect(result.snapshot.machines.find((machine) => machine.machineId === processor.machineId)?.progress).toBe(0);
+  expect(
+    result.snapshot.machines.find(
+      (machine) => machine.machineId === placedProcessor.processor.machineId,
+    )?.recipeId,
+  ).toBe("iron_rod");
+  expect(
+    result.snapshot.machines.find(
+      (machine) => machine.machineId === placedProcessor.processor.machineId,
+    )?.progress,
+  ).toBe(0);
 
   const inventory = result.snapshot.containers[0];
-  if (inventory === undefined || inventory._tag !== "SlotContainer") {
-    throw new Error("expected inventory container");
+  switch (true) {
+    case inventory === undefined:
+    case inventory?._tag !== "SlotContainer":
+      throw new Error("expected inventory container");
   }
 
-  expect(inventory.slots.some((slot) => slot.stack?.itemId === "iron_plate")).toBe(true);
+  expect(
+    inventory.slots.some((slot) => slot.stack?.itemId === "iron_plate"),
+  ).toBe(true);
 });
 
 test("progressMachineWork consumes input and advances smelter batch", () => {
@@ -346,24 +485,29 @@ test("progressMachineWork consumes input and advances smelter batch", () => {
   };
 
   const result = progressMachineWork(snapshot);
-  const inputContainer = result.snapshot.containers[0];
-  const machine = result.snapshot.machines[0];
+  const progressed = Match.value({
+    inputContainer: result.snapshot.containers[0],
+    machine: result.snapshot.machines[0],
+  }).pipe(
+    Match.when(
+      {
+        inputContainer: { _tag: "TypedContainer" },
+        machine: Match.defined,
+      },
+      ({ inputContainer, machine }) => ({ inputContainer, machine }),
+    ),
+    Match.orElse(() =>
+      fail("expected typed smelter input container and machine"),
+    ),
+  );
 
-  expect(inputContainer).toBeDefined();
-  expect(machine).toBeDefined();
+  expect(progressed.inputContainer).toBeDefined();
+  expect(progressed.machine).toBeDefined();
+  expect(progressed.inputContainer._tag).toBe("TypedContainer");
 
-  if (inputContainer === undefined || machine === undefined) {
-    throw new Error("expected smelter input container and machine");
-  }
-
-  expect(inputContainer._tag).toBe("TypedContainer");
-  if (inputContainer._tag !== "TypedContainer") {
-    throw new Error("expected typed input container");
-  }
-
-  expect(inputContainer.entries).toEqual([]);
-  expect(machine.progress).toBeCloseTo(0.05);
-  expect(machine.status).toBe("running");
+  expect(progressed.inputContainer.entries).toEqual([]);
+  expect(progressed.machine.progress).toBeCloseTo(0.05);
+  expect(progressed.machine.status).toBe("running");
 });
 
 test("progressMachineWork emits finished output into machine output buffer", () => {
@@ -402,24 +546,31 @@ test("progressMachineWork emits finished output into machine output buffer", () 
   };
 
   const result = progressMachineWork(snapshot);
-  const outputContainer = result.snapshot.containers[1];
-  const machine = result.snapshot.machines[0];
+  const progressed = Match.value({
+    machine: result.snapshot.machines[0],
+    outputContainer: result.snapshot.containers[1],
+  }).pipe(
+    Match.when(
+      {
+        machine: Match.defined,
+        outputContainer: { _tag: "TypedContainer" },
+      },
+      ({ machine, outputContainer }) => ({ machine, outputContainer }),
+    ),
+    Match.orElse(() =>
+      fail("expected typed smelter output container and machine"),
+    ),
+  );
 
-  expect(outputContainer).toBeDefined();
-  expect(machine).toBeDefined();
+  expect(progressed.outputContainer).toBeDefined();
+  expect(progressed.machine).toBeDefined();
+  expect(progressed.outputContainer._tag).toBe("TypedContainer");
 
-  if (outputContainer === undefined || machine === undefined) {
-    throw new Error("expected smelter output container and machine");
-  }
-
-  expect(outputContainer._tag).toBe("TypedContainer");
-  if (outputContainer._tag !== "TypedContainer") {
-    throw new Error("expected typed output container");
-  }
-
-  expect(outputContainer.entries).toEqual([{ itemId: "iron_ingot", quantity: 1 }]);
-  expect(machine.progress).toBeCloseTo(0.03);
-  expect(machine.status).toBe("running");
+  expect(progressed.outputContainer.entries).toEqual([
+    { itemId: "iron_ingot", quantity: 1 },
+  ]);
+  expect(progressed.machine.progress).toBeCloseTo(0.03);
+  expect(progressed.machine.status).toBe("running");
 });
 
 test("executeTransport delivers to modular storage and updates quota", () => {
@@ -432,7 +583,11 @@ test("executeTransport delivers to modular storage and updates quota", () => {
         capacity: undefined,
         containerId: "system:modular-storage",
         entries: [],
-        owner: { kind: "system", ownerId: "system:modular-storage", role: "quota_storage" },
+        owner: {
+          kind: "system",
+          ownerId: "system:modular-storage",
+          role: "quota_storage",
+        },
       },
     ],
     transportLanes: [
@@ -449,22 +604,26 @@ test("executeTransport delivers to modular storage and updates quota", () => {
   };
 
   const result = executeTransport(snapshot);
-  const storage = result.snapshot.containers[0];
-  const lane = result.snapshot.transportLanes[0];
+  const delivered = Match.value({
+    lane: result.snapshot.transportLanes[0],
+    storage: result.snapshot.containers[0],
+  }).pipe(
+    Match.when(
+      {
+        lane: Match.defined,
+        storage: { _tag: "TypedContainer" },
+      },
+      ({ lane, storage }) => ({ lane, storage }),
+    ),
+    Match.orElse(() => fail("expected typed storage container and lane")),
+  );
 
-  expect(storage).toBeDefined();
-  expect(lane).toBeDefined();
-
-  if (storage === undefined || lane === undefined) {
-    throw new Error("expected storage and lane");
-  }
-
-  expect(storage._tag).toBe("TypedContainer");
-  if (storage._tag !== "TypedContainer") {
-    throw new Error("expected typed storage container");
-  }
-
-  expect(storage.entries).toEqual([{ itemId: "iron_ingot", quantity: 1 }]);
+  expect(delivered.storage).toBeDefined();
+  expect(delivered.lane).toBeDefined();
+  expect(delivered.storage._tag).toBe("TypedContainer");
+  expect(delivered.storage.entries).toEqual([
+    { itemId: "iron_ingot", quantity: 1 },
+  ]);
   expect(result.snapshot.observers.quota[0]).toEqual({
     delivered: 1,
     itemId: "iron_ingot",
@@ -490,7 +649,7 @@ test("TakeFromContainer rejects manual withdrawal from machine input", () => {
     ],
   };
 
-  const result = applyWorldCommand(snapshot, actor, {
+  const result = applyWorldCommandSync(snapshot, actor, {
     _tag: "TakeFromContainer",
     commandId: "00000000-0000-0000-0000-000000000021",
     fromContainerId: "machine:smelter:input",
@@ -510,7 +669,7 @@ test("InsertFuel moves wood into a burner fuel buffer", () => {
   const snapshot: WorldRuntimeSnapshot = {
     ...withInventoryStack(baseSnapshot(), 0, "wood", 2),
     containers: [
-      ...(withInventoryStack(baseSnapshot(), 0, "wood", 2).containers),
+      ...withInventoryStack(baseSnapshot(), 0, "wood", 2).containers,
       {
         _tag: "TypedContainer",
         acceptedItemIds: ["wood"],
@@ -533,18 +692,21 @@ test("InsertFuel moves wood into a burner fuel buffer", () => {
         status: "out_of_fuel",
       },
     ],
-    objects: [...(baseSnapshot().objects ?? []), {
-      buildableId: "burner_v1",
-      containerIds: ["entity:burner-1:fuel"],
-      fixed: false,
-      objectId: "burner-1",
-      origin: { x: 4, y: 4 },
-      removable: true,
-      rotation: "east",
-    }],
+    objects: [
+      ...(baseSnapshot().objects ?? []),
+      {
+        buildableId: "burner_v1",
+        containerIds: ["entity:burner-1:fuel"],
+        fixed: false,
+        objectId: "burner-1",
+        origin: { x: 4, y: 4 },
+        removable: true,
+        rotation: "east",
+      },
+    ],
   };
 
-  const result = applyWorldCommand(snapshot, actor, {
+  const result = applyWorldCommandSync(snapshot, actor, {
     _tag: "InsertFuel",
     commandId: "00000000-0000-0000-0000-000000000022",
     fuelItemId: "wood",
@@ -554,14 +716,18 @@ test("InsertFuel moves wood into a burner fuel buffer", () => {
   });
 
   expect(result.pendingReceipt._tag).toBe("accepted");
-  const fuelContainer = result.snapshot.containers.find((container) => container.containerId === "entity:burner-1:fuel");
+  const fuelContainer = result.snapshot.containers.find(
+    (container) => container.containerId === "entity:burner-1:fuel",
+  );
 
-  expect(fuelContainer).toBeDefined();
-  if (fuelContainer === undefined || fuelContainer._tag !== "TypedContainer") {
-    throw new Error("expected burner fuel container");
-  }
+  const typedFuelContainer = Match.value(fuelContainer).pipe(
+    Match.when({ _tag: "TypedContainer" }, (fuelContainer) => fuelContainer),
+    Match.orElse(() => fail("expected burner fuel container")),
+  );
 
-  expect(fuelContainer.entries).toEqual([{ itemId: "wood", quantity: 1 }]);
+  expect(typedFuelContainer).toBeDefined();
+
+  expect(typedFuelContainer.entries).toEqual([{ itemId: "wood", quantity: 1 }]);
 });
 
 test("recomputePowerState powers machines and trips overloaded networks until restart", () => {
@@ -583,7 +749,11 @@ test("recomputePowerState powers machines and trips overloaded networks until re
         capacity: 200,
         containerId: "entity:processor-1:input",
         entries: [{ itemId: "iron_ingot", quantity: 2 }],
-        owner: { kind: "entity", ownerId: "processor-1", role: "machine_input" },
+        owner: {
+          kind: "entity",
+          ownerId: "processor-1",
+          role: "machine_input",
+        },
       },
       {
         _tag: "TypedContainer",
@@ -591,7 +761,11 @@ test("recomputePowerState powers machines and trips overloaded networks until re
         capacity: 200,
         containerId: "entity:processor-1:output",
         entries: [],
-        owner: { kind: "entity", ownerId: "processor-1", role: "machine_output" },
+        owner: {
+          kind: "entity",
+          ownerId: "processor-1",
+          role: "machine_output",
+        },
       },
       {
         _tag: "TypedContainer",
@@ -617,7 +791,7 @@ test("recomputePowerState powers machines and trips overloaded networks until re
         entries: [],
         owner: { kind: "entity", ownerId: "miner-1", role: "machine_output" },
       },
-    ] ,
+    ],
     generators: [
       {
         currentOutputMw: 0,
@@ -712,9 +886,11 @@ test("recomputePowerState powers machines and trips overloaded networks until re
 
   const tripped = recomputePowerState(snapshot).snapshot;
   expect(tripped.powerNetworks[0]?.status).toBe("tripped");
-  expect(tripped.machines.every((machine) => machine.powerState === "unpowered")).toBe(true);
+  expect(
+    tripped.machines.every((machine) => machine.powerState === "unpowered"),
+  ).toBe(true);
 
-  const restarted = applyWorldCommand(tripped, actor, {
+  const restarted = applyWorldCommandSync(tripped, actor, {
     _tag: "RestartPowerNetwork",
     commandId: "00000000-0000-0000-0000-000000000023",
     objectId: "burner-1",
@@ -725,11 +901,21 @@ test("recomputePowerState powers machines and trips overloaded networks until re
 
   const relieved: WorldRuntimeSnapshot = {
     ...restarted,
-    machines: restarted.machines.filter((machine) => machine.machineId !== "smelter-1" && machine.machineId !== "miner-1"),
-    objects: restarted.objects?.filter((object) => object.objectId !== "smelter-1" && object.objectId !== "miner-1"),
-    containers: restarted.containers.filter((container) => !container.containerId.startsWith("entity:smelter-1") && !container.containerId.startsWith("entity:miner-1")),
+    machines: restarted.machines.filter(
+      (machine) =>
+        machine.machineId !== "smelter-1" && machine.machineId !== "miner-1",
+    ),
+    objects: restarted.objects?.filter(
+      (object) =>
+        object.objectId !== "smelter-1" && object.objectId !== "miner-1",
+    ),
+    containers: restarted.containers.filter(
+      (container) =>
+        !container.containerId.startsWith("entity:smelter-1") &&
+        !container.containerId.startsWith("entity:miner-1"),
+    ),
   };
-  const restartedAgain = applyWorldCommand(relieved, actor, {
+  const restartedAgain = applyWorldCommandSync(relieved, actor, {
     _tag: "RestartPowerNetwork",
     commandId: "00000000-0000-0000-0000-000000000024",
     objectId: "burner-1",

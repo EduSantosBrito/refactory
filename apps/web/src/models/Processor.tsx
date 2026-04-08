@@ -1,5 +1,5 @@
-import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
+import { useRef } from "react";
 import type { Group } from "three";
 import { COLORS, MAT, type ModelProps } from "./colors";
 
@@ -47,25 +47,41 @@ export function Processor(props: ModelProps) {
         {/* Stamp rod */}
         <mesh position={[0, 0.1, 0]}>
           <cylinderGeometry args={[0.04, 0.04, 0.2, 10]} />
-          <meshStandardMaterial color={COLORS.processorDark} roughness={0.35} metalness={0.15} />
+          <meshStandardMaterial
+            color={COLORS.processorDark}
+            roughness={0.35}
+            metalness={0.15}
+          />
         </mesh>
         {/* Stamp head */}
         <mesh position={[0, -0.02, 0]}>
           <cylinderGeometry args={[0.1, 0.1, 0.06, 12]} />
-          <meshStandardMaterial color={COLORS.processorDark} roughness={0.4} metalness={0.1} />
+          <meshStandardMaterial
+            color={COLORS.processorDark}
+            roughness={0.4}
+            metalness={0.1}
+          />
         </mesh>
       </group>
 
       {/* Accent band */}
       <mesh position={[0, 0.28, 0]} rotation={[Math.PI / 2, 0, 0]}>
         <torusGeometry args={[0.44, 0.015, 8, 20]} />
-        <meshStandardMaterial color={COLORS.processorLight} {...MAT} roughness={0.4} />
+        <meshStandardMaterial
+          color={COLORS.processorLight}
+          {...MAT}
+          roughness={0.4}
+        />
       </mesh>
 
       {/* Status light on front */}
       <mesh position={[0.3, 0.45, 0.35]}>
         <sphereGeometry args={[0.025, 10, 10]} />
-        <meshStandardMaterial color="#7ecf7e" emissive="#7ecf7e" emissiveIntensity={0.6} />
+        <meshStandardMaterial
+          color="#7ecf7e"
+          emissive="#7ecf7e"
+          emissiveIntensity={0.6}
+        />
       </mesh>
     </group>
   );

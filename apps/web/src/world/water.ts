@@ -1,4 +1,4 @@
-import { memo, useMemo, createElement } from "react";
+import { createElement, memo, useMemo } from "react";
 import * as THREE from "three";
 
 // ── Colors ──────────────────────────────────────────────────
@@ -26,13 +26,41 @@ export type RiverDef = {
 
 export const LAKES: LakeDef[] = [
   // Main lake: large, center-left
-  { cx: -30, cz: -25, baseRadius: 18, noiseFreq: 3.2, noiseAmp: 3.5, rotation: 0.15 },
+  {
+    cx: -30,
+    cz: -25,
+    baseRadius: 18,
+    noiseFreq: 3.2,
+    noiseAmp: 3.5,
+    rotation: 0.15,
+  },
   // Smaller lake: northeast
-  { cx: 50, cz: 45, baseRadius: 12, noiseFreq: 4.0, noiseAmp: 2.8, rotation: -0.3 },
+  {
+    cx: 50,
+    cz: 45,
+    baseRadius: 12,
+    noiseFreq: 4.0,
+    noiseAmp: 2.8,
+    rotation: -0.3,
+  },
   // Pond: small, near center-south
-  { cx: 15, cz: -50, baseRadius: 6, noiseFreq: 5.0, noiseAmp: 1.2, rotation: 0.5 },
+  {
+    cx: 15,
+    cz: -50,
+    baseRadius: 6,
+    noiseFreq: 5.0,
+    noiseAmp: 1.2,
+    rotation: 0.5,
+  },
   // Secondary pond: northwest
-  { cx: -60, cz: 55, baseRadius: 8, noiseFreq: 3.8, noiseAmp: 1.8, rotation: -0.1 },
+  {
+    cx: -60,
+    cz: 55,
+    baseRadius: 8,
+    noiseFreq: 3.8,
+    noiseAmp: 1.8,
+    rotation: -0.1,
+  },
 ];
 
 export const RIVERS: RiverDef[] = [
@@ -57,7 +85,8 @@ export const RIVERS: RiverDef[] = [
       [88, -70],
       [95, -80],
     ],
-    width: (t: number) => 5 + Math.sin(t * Math.PI * 3.2) * 1.5 + Math.sin(t * Math.PI * 7.1) * 0.8,
+    width: (t: number) =>
+      5 + Math.sin(t * Math.PI * 3.2) * 1.5 + Math.sin(t * Math.PI * 7.1) * 0.8,
   },
   // Creek: branches off near center, runs toward the northeast lake
   {
@@ -154,8 +183,13 @@ function buildRiverSegments(river: RiverDef): RiverSegment[] {
   const totalLen = subdivided.length - 1;
 
   for (let i = 0; i < subdivided.length - 1; i++) {
-    const [ax, az] = subdivided[i]!;
-    const [bx, bz] = subdivided[i + 1]!;
+    const start = subdivided.at(i);
+    const end = subdivided.at(i + 1);
+    if (!start || !end) {
+      continue;
+    }
+    const [ax, az] = start;
+    const [bx, bz] = end;
     const dx = bx - ax;
     const dz = bz - az;
     const len = Math.sqrt(dx * dx + dz * dz);
@@ -187,16 +221,22 @@ function buildRiverSegments(river: RiverDef): RiverSegment[] {
   return segments;
 }
 
-function catmullRomSubdivide(points: [number, number][], subdivisions: number): [number, number][] {
+function catmullRomSubdivide(
+  points: [number, number][],
+  subdivisions: number,
+): [number, number][] {
   if (points.length < 2) return [...points];
 
   const result: [number, number][] = [];
 
   for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[Math.max(i - 1, 0)]!;
-    const p1 = points[i]!;
-    const p2 = points[i + 1]!;
-    const p3 = points[Math.min(i + 2, points.length - 1)]!;
+    const p0 = points.at(Math.max(i - 1, 0));
+    const p1 = points.at(i);
+    const p2 = points.at(i + 1);
+    const p3 = points.at(Math.min(i + 2, points.length - 1));
+    if (!p0 || !p1 || !p2 || !p3) {
+      continue;
+    }
 
     for (let s = 0; s < subdivisions; s++) {
       const t = s / subdivisions;
@@ -222,7 +262,10 @@ function catmullRomSubdivide(points: [number, number][], subdivisions: number): 
   }
 
   // Add the final point
-  result.push(points[points.length - 1]!);
+  const lastPoint = points.at(-1);
+  if (lastPoint) {
+    result.push(lastPoint);
+  }
   return result;
 }
 
@@ -233,7 +276,10 @@ const riverSegmentSets: RiverSegment[][] = RIVERS.map(buildRiverSegments);
 /** Returns true if world position (x, z) is inside any water body. */
 export function isInLake(x: number, z: number): boolean {
   for (let li = 0; li < lakeCaches.length; li++) {
-    const lake = lakeCaches[li]!;
+    const lake = lakeCaches.at(li);
+    if (!lake) {
+      continue;
+    }
 
     // Quick bounding-circle reject
     const rawDx = x - lake.cx;
@@ -255,8 +301,11 @@ export function isInLake(x: number, z: number): boolean {
     const frac = sampleIdx - Math.floor(sampleIdx);
 
     // Linearly interpolate between adjacent samples for smooth boundary
-    const r0 = lake.radii[idx0]!;
-    const r1 = lake.radii[idx1]!;
+    const r0 = lake.radii.at(idx0);
+    const r1 = lake.radii.at(idx1);
+    if (r0 === undefined || r1 === undefined) {
+      continue;
+    }
     const effectiveRadius = r0 + (r1 - r0) * frac;
 
     if (dist < effectiveRadius) return true;
@@ -271,7 +320,10 @@ export function isInLake(x: number, z: number): boolean {
  */
 export function lakeDepthFactor(x: number, z: number): number {
   for (let li = 0; li < lakeCaches.length; li++) {
-    const lake = lakeCaches[li]!;
+    const lake = lakeCaches.at(li);
+    if (!lake) {
+      continue;
+    }
 
     const rawDx = x - lake.cx;
     const rawDz = z - lake.cz;
@@ -289,8 +341,11 @@ export function lakeDepthFactor(x: number, z: number): number {
     const idx1 = (idx0 + 1) % LAKE_BOUNDARY_SAMPLES;
     const frac = sampleIdx - Math.floor(sampleIdx);
 
-    const r0 = lake.radii[idx0]!;
-    const r1 = lake.radii[idx1]!;
+    const r0 = lake.radii.at(idx0);
+    const r1 = lake.radii.at(idx1);
+    if (r0 === undefined || r1 === undefined) {
+      continue;
+    }
     const effectiveRadius = r0 + (r1 - r0) * frac;
 
     if (dist < effectiveRadius) {
@@ -307,12 +362,19 @@ export function isInWater(x: number, z: number): boolean {
 
   // Check rivers
   for (let ri = 0; ri < riverSegmentSets.length; ri++) {
-    const segments = riverSegmentSets[ri]!;
+    const segments = riverSegmentSets.at(ri);
+    if (!segments) {
+      continue;
+    }
     for (let si = 0; si < segments.length; si++) {
-      const seg = segments[si]!;
+      const seg = segments.at(si);
+      if (!seg) {
+        continue;
+      }
 
       // Quick AABB reject
-      if (x < seg.minX || x > seg.maxX || z < seg.minZ || z > seg.maxZ) continue;
+      if (x < seg.minX || x > seg.maxX || z < seg.minZ || z > seg.maxZ)
+        continue;
 
       // Project point onto segment
       const pax = x - seg.ax;
@@ -387,29 +449,51 @@ function buildRiverGeometry(river: RiverDef): THREE.BufferGeometry {
   const rightBank: THREE.Vector2[] = [];
 
   for (let i = 0; i < subdivided.length; i++) {
-    const [px, pz] = subdivided[i]!;
+    const point = subdivided.at(i);
+    if (!point) {
+      continue;
+    }
+    const [px, pz] = point;
     const t = i / totalLen;
-    const halfW = (typeof river.width === "number" ? river.width : river.width(t)) * 0.5;
+    const halfW =
+      (typeof river.width === "number" ? river.width : river.width(t)) * 0.5;
 
     // Compute tangent direction
     let tx: number, tz: number;
     if (i === 0) {
-      tx = subdivided[1]![0] - px;
-      tz = subdivided[1]![1] - pz;
+      const nextPoint = subdivided.at(1);
+      if (!nextPoint) {
+        continue;
+      }
+      tx = nextPoint[0] - px;
+      tz = nextPoint[1] - pz;
     } else if (i === subdivided.length - 1) {
-      tx = px - subdivided[i - 1]![0];
-      tz = pz - subdivided[i - 1]![1];
+      const prevPoint = subdivided.at(i - 1);
+      if (!prevPoint) {
+        continue;
+      }
+      tx = px - prevPoint[0];
+      tz = pz - prevPoint[1];
     } else {
-      tx = subdivided[i + 1]![0] - subdivided[i - 1]![0];
-      tz = subdivided[i + 1]![1] - subdivided[i - 1]![1];
+      const nextPoint = subdivided.at(i + 1);
+      const prevPoint = subdivided.at(i - 1);
+      if (!nextPoint || !prevPoint) {
+        continue;
+      }
+      tx = nextPoint[0] - prevPoint[0];
+      tz = nextPoint[1] - prevPoint[1];
     }
 
     const tLen = Math.sqrt(tx * tx + tz * tz);
     if (tLen < 0.001) {
       // Degenerate, use previous direction or skip
       if (leftBank.length > 0) {
-        leftBank.push(leftBank[leftBank.length - 1]!.clone());
-        rightBank.push(rightBank[rightBank.length - 1]!.clone());
+        const previousLeftBank = leftBank.at(-1);
+        const previousRightBank = rightBank.at(-1);
+        if (previousLeftBank && previousRightBank) {
+          leftBank.push(previousLeftBank.clone());
+          rightBank.push(previousRightBank.clone());
+        }
       }
       continue;
     }
@@ -427,10 +511,13 @@ function buildRiverGeometry(river: RiverDef): THREE.BufferGeometry {
   const count = Math.min(leftBank.length, rightBank.length);
 
   for (let i = 0; i < count - 1; i++) {
-    const l0 = leftBank[i]!;
-    const r0 = rightBank[i]!;
-    const l1 = leftBank[i + 1]!;
-    const r1 = rightBank[i + 1]!;
+    const l0 = leftBank.at(i);
+    const r0 = rightBank.at(i);
+    const l1 = leftBank.at(i + 1);
+    const r1 = rightBank.at(i + 1);
+    if (!l0 || !r0 || !l1 || !r1) {
+      continue;
+    }
 
     const midX = (l0.x + r0.x + l1.x + r1.x) * 0.25;
     const midZ = (l0.y + r0.y + l1.y + r1.y) * 0.25;
@@ -477,7 +564,11 @@ export const WaterSurface = memo(function WaterSurface() {
 
   // Lake surfaces
   for (let i = 0; i < LAKES.length; i++) {
-    const lake = LAKES[i]!;
+    const lake = LAKES.at(i);
+    const geometry = lakeGeos.at(i);
+    if (!lake || !geometry) {
+      continue;
+    }
     children.push(
       createElement(
         "mesh",
@@ -485,7 +576,7 @@ export const WaterSurface = memo(function WaterSurface() {
           key: `lake-${i}`,
           rotation: [-Math.PI / 2, 0, 0] as [number, number, number],
           position: [lake.cx, 0.01, lake.cz] as [number, number, number],
-          geometry: lakeGeos[i],
+          geometry,
         },
         createElement("meshStandardMaterial", {
           color: WATER_COLOR,

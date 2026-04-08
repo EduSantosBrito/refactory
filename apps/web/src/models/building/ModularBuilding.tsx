@@ -1,24 +1,29 @@
 import type { ModelProps } from "../colors";
-import { FOUNDATION_HALF_H, BODY_HALF_H_MAP, LEG_H, type BodyHeight } from "./palette";
-import { Foundation } from "./Foundation";
 import { Body } from "./Body";
+import { Foundation } from "./Foundation";
 import {
-  PowerUnit,
-  AntennaModule,
-  ChimneyStack,
-  TurbinePlate,
-  DrillHead,
-  TankCluster,
-  HeatSinkArray,
-  SortingFrame,
-} from "./TopModules";
+  BODY_HALF_H_MAP,
+  type BodyHeight,
+  FOUNDATION_HALF_H,
+  LEG_H,
+} from "./palette";
 import {
+  SideLamp,
+  SidePanel,
+  SidePipe,
   SideTank,
   SideVent,
-  SidePipe,
-  SidePanel,
-  SideLamp,
 } from "./SideAttachments";
+import {
+  AntennaModule,
+  ChimneyStack,
+  DrillHead,
+  HeatSinkArray,
+  PowerUnit,
+  SortingFrame,
+  TankCluster,
+  TurbinePlate,
+} from "./TopModules";
 
 export type TopModuleType =
   | "power"
@@ -99,12 +104,12 @@ export function ModularBuilding({
         <TopMod />
       </group>
 
-      {sideAttachments.map((att, i) => {
+      {sideAttachments.map((att) => {
         const a = (att.face / 8) * Math.PI * 2 + Math.PI / 8;
         const Comp = SIDE[att.type];
         return (
           <group
-            key={`sa-${i}`}
+            key={`${att.type}-${att.face}-${att.y ?? 0}`}
             position={[
               Math.sin(a) * FACE_R,
               bodyY + (att.y ?? 0),

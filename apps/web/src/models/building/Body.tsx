@@ -1,4 +1,4 @@
-import { B, M, BODY_HALF_H_MAP, type BodyHeight } from "./palette";
+import { B, BODY_HALF_H_MAP, type BodyHeight, M } from "./palette";
 
 const S = 8;
 const BASE_HALF_H = 0.134;
@@ -34,7 +34,7 @@ export function Body({ height = "standard" }: BodyProps) {
         const a = (i / 4) * Math.PI * 2;
         return (
           <mesh
-            key={`bp-${i}`}
+            key={`bp-${a.toFixed(3)}`}
             position={[Math.sin(a) * 0.26, 0, Math.cos(a) * 0.26]}
             rotation={[0, -a, 0]}
           >
