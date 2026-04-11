@@ -44,6 +44,7 @@ export type {
   ChainPath,
   ChainPosition,
   ChainSegment,
+  CurveTurn,
   PortFacing,
   PortRole,
 } from "./types";

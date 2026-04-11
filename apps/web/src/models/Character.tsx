@@ -81,21 +81,38 @@ export function Character({
     const group = groupRef.current;
     if (!group) return;
 
+    // Reset all transforms before measuring
     group.scale.setScalar(1);
     group.position.set(0, 0, 0);
-    group.updateWorldMatrix(true, true);
 
+    // Compute local bounds of the actor (ignoring parent transforms)
+    // by manually iterating geometries with their LOCAL matrices only
     const bounds = new Box3();
-    const point = new Vector3();
+    const localPoint = new Vector3();
 
     actor.traverse((child) => {
-      if (!(child instanceof Mesh)) return;
-      const positions = child.geometry.getAttribute("position");
+      if (!(child as Mesh).isMesh) return;
+      const mesh = child as Mesh;
+      const geo = mesh.geometry;
+      const positions = geo.getAttribute("position");
       if (!positions) return;
+
+      // Update local matrix from position/rotation/scale
+      mesh.updateMatrix();
+
+      // Build transform chain from mesh up to (but not including) actor
+      const localToActor = mesh.matrix.clone();
+      let parent = mesh.parent;
+      while (parent && parent !== actor) {
+        parent.updateMatrix();
+        localToActor.premultiply(parent.matrix);
+        parent = parent.parent;
+      }
+
       for (let i = 0; i < positions.count; i++) {
-        point.set(positions.getX(i), positions.getY(i), positions.getZ(i));
-        point.applyMatrix4(child.matrixWorld);
-        bounds.expandByPoint(point);
+        localPoint.set(positions.getX(i), positions.getY(i), positions.getZ(i));
+        localPoint.applyMatrix4(localToActor);
+        bounds.expandByPoint(localPoint);
       }
     });
 

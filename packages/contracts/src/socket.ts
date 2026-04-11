@@ -71,10 +71,17 @@ export type WorldRuntimeHeartbeatMessage = Schema.Schema.Type<
   typeof WorldRuntimeHeartbeatMessage
 >;
 
+export const TraceContext = Schema.Struct({
+  traceparent: Schema.String,
+  tracestate: Schema.optional(Schema.String),
+});
+export type TraceContext = Schema.Schema.Type<typeof TraceContext>;
+
 export const WorldRuntimeCommandMessage = Schema.TaggedStruct(
   "WorldRuntimeCommandMessage",
   {
     command: WorldCommand,
+    traceContext: Schema.optional(TraceContext),
   },
 );
 export type WorldRuntimeCommandMessage = Schema.Schema.Type<

@@ -1,3 +1,11 @@
+import type { WorldRuntimeSnapshot } from "@refactory/contracts/runtime";
+import type {
+  AssetId,
+  WorldMode,
+  WorldSummary,
+  WorldVisibility,
+} from "@refactory/contracts/worlds";
+import { Effect, Match, Option } from "effect";
 import {
   lazy,
   type ReactNode,
@@ -5,45 +13,75 @@ import {
   StrictMode,
   Suspense,
   startTransition,
+  useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { createRoot } from "react-dom/client";
-import type {
-  AssetId,
-  WorldMode,
-  WorldSummary,
-  WorldVisibility,
-} from "@refactory/contracts/worlds";
-import { Effect } from "effect";
 import "./styles.css";
 import { AmbientMusicPlayer } from "./AmbientMusicPlayer";
 import {
   getOrCreateActorCredentials,
   readStoredActorDisplayName,
 } from "./api/actorAuth";
-import { createWorld, getWorld, listOwnWorlds } from "./api/worldClient";
+import {
+  createWorld,
+  deleteWorld,
+  getWorld,
+  listOwnWorlds,
+} from "./api/worldClient";
+import { getWorldRuntime } from "./api/worldRuntimeClient";
 import { AudioSettingsProvider, useAudioSettings } from "./audio-settings";
+import {
+  getLocalStorageItem,
+  removeLocalStorageItem,
+  setLocalStorageItem,
+} from "./browserStorage";
+import type { BrowserStorage } from "./browserStorage.service";
 import { DEFAULT_ASSET_ID } from "./characterAssets";
 import { ActionBar } from "./components/ActionBar";
 import { BuildMenu } from "./components/BuildMenu";
-import { RefactoryLogo } from "./components/RefactoryLogo";
-import type { CharacterName } from "./models/Character";
-import { CHARACTER_SELECT_EVENT } from "./scenes/StartScreenCast";
 import { Chatbox } from "./components/Chatbox";
 import { InventoryModal } from "./components/InventoryModal";
+import { PortalModal } from "./components/PortalModal";
+import { RefactoryLogo } from "./components/RefactoryLogo";
 import { SliderControl } from "./components/SliderControl";
 import { VossDialog, type VossLine } from "./components/VossDialog";
-import { WorldMenuHud, type WorldMenuAction } from "./components/WorldMenuHud";
+import { type WorldMenuAction, WorldMenuHud } from "./components/WorldMenuHud";
+import type { CharacterName } from "./models/Character";
+import {
+  clearPortalWorldDraft,
+  hasPortalParams,
+  isPortalHandoff,
+  PORTAL_CREATION_SESSION_QUERY_PARAM,
+  parsePortalParams,
+  readPortalSession,
+  readPortalWorldDraft,
+  redirectBackToRef,
+  redirectToPortal,
+  storePortalSession,
+  storePortalWorldDraft,
+  type PortalParams,
+} from "./portal";
 import { preloadWorldExperience } from "./preload";
+import { CHARACTER_SELECT_EVENT } from "./scenes/StartScreenCast";
 import { StartScreenScene } from "./scenes/StartScreenScene";
-import { logWorldLoadEvent, logWorldLoadEventOnce } from "./world/worldLoadLog";
+import {
+  readPortalQueryUsername,
+  resolveActorDisplayName,
+} from "./usernameResolution";
+import { runPromise } from "./effectRuntime";
+import {
+  logWorldLoadEventOnce,
+  withWorldFlowSpan,
+} from "./world/worldLoadLog";
 
 const World = lazy(() => import("./World").then((m) => ({ default: m.World })));
 const Game = lazy(() => import("./Game").then((m) => ({ default: m.Game })));
 const WORLD_VISUAL_READY_EVENT = "world-visual-ready";
-const START_SCREEN_VISUAL_READY_EVENT = "start-screen-visual-ready";
+const DEFAULT_PORTAL_USERNAME = "Operator";
 
 type ApiStatus =
   | { readonly _tag: "loading" }
@@ -60,13 +98,21 @@ type NewWorldDraft = {
   readonly worldName: string;
 };
 
+type PendingWorldRemoval = {
+  readonly worldId: string;
+  readonly worldName: string;
+};
+
 type SelectedWorldState =
   | { readonly _tag: "mock" }
+  | { readonly _tag: "creating" } // Portal entry: creating new world
   | { readonly _tag: "loading"; readonly worldId: string }
   | {
       readonly _tag: "ready";
       readonly hostAssetId: AssetId;
       readonly mode: WorldMode;
+      readonly portalParams?: PortalParams;
+      readonly runtimeSnapshot: WorldRuntimeSnapshot;
       readonly worldId: string;
       readonly worldName: string;
     }
@@ -167,8 +213,17 @@ const worldNameSuffixes = [
   "Yard",
 ] as const;
 
-const pickRandom = <T,>(options: readonly T[]): T =>
-  options[Math.floor(Math.random() * options.length)] ?? options[0]!;
+const pickRandom = <T,>(options: readonly T[]): T => {
+  const fallback = options[0];
+
+  if (fallback === undefined) {
+    throw new Error("pickRandom requires at least one option.");
+  }
+
+  return options[Math.floor(Math.random() * options.length)] ?? fallback;
+};
+
+const pickRandomAssetId = (): AssetId => pickRandom(assetChoices).assetId;
 
 const makeRandomUsername = () =>
   `${pickRandom(usernamePrefixes)} ${pickRandom(usernameSuffixes)}-${Math.floor(
@@ -180,44 +235,32 @@ const makeRandomWorldName = () =>
     10 + Math.random() * 90,
   )}`;
 
-const safeStorageGet = (key: string) => {
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-};
-
-const safeStorageSet = (key: string, value: string) => {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    return;
-  }
-};
+const makePortalWorldName = (actorDisplayName: string, sessionId: string) =>
+  `${actorDisplayName}'s Portal ${sessionId.slice(0, 8)}`;
 
 const readLastAccessedWorldId = () =>
-  safeStorageGet(lastAccessedWorldStorageKey);
+  getLocalStorageItem(lastAccessedWorldStorageKey);
 
 const writeLastAccessedWorldId = (worldId: string) =>
-  safeStorageSet(lastAccessedWorldStorageKey, worldId);
+  void setLocalStorageItem(lastAccessedWorldStorageKey, worldId);
+
+const clearLastAccessedWorldId = () =>
+  void removeLocalStorageItem(lastAccessedWorldStorageKey);
 
 const readPreferredAssetId = (): AssetId => {
-  const stored = safeStorageGet(preferredAssetStorageKey);
+  const stored = getLocalStorageItem(preferredAssetStorageKey);
 
-  switch (stored) {
-    case "BAR-001":
-    case "FLA-002":
-    case "FRO-003":
-    case "RPA-004":
-      return stored;
-    default:
-      return DEFAULT_ASSET_ID;
-  }
+  return Match.value(stored).pipe(
+    Match.when("BAR-001", (assetId) => assetId),
+    Match.when("FLA-002", (assetId) => assetId),
+    Match.when("FRO-003", (assetId) => assetId),
+    Match.when("RPA-004", (assetId) => assetId),
+    Match.orElse(() => DEFAULT_ASSET_ID),
+  );
 };
 
 const writePreferredAssetId = (assetId: AssetId) =>
-  safeStorageSet(preferredAssetStorageKey, assetId);
+  void setLocalStorageItem(preferredAssetStorageKey, assetId);
 
 const makeNewWorldDraft = (
   username: string,
@@ -294,23 +337,97 @@ const resolveContinueWorld = (
 const goToWorld = (
   worldId: string,
   options?: {
-    readonly autostart?: boolean;
     readonly entry?: "resume";
   },
 ) => {
   writeLastAccessedWorldId(worldId);
   const nextUrl = new URL(window.location.href);
-  nextUrl.pathname = "/world";
+  nextUrl.pathname = "/play";
   nextUrl.search = "";
   nextUrl.searchParams.set("worldId", worldId);
-  if (options?.autostart) {
-    nextUrl.searchParams.set("autostart", "1");
-  }
   if (options?.entry) {
     nextUrl.searchParams.set("entry", options.entry);
   }
   window.location.assign(nextUrl.toString());
 };
+
+const ensurePortalCreationSessionIdInUrl = () => {
+  const nextUrl = new URL(window.location.href);
+  const existingSessionId = nextUrl.searchParams.get(
+    PORTAL_CREATION_SESSION_QUERY_PARAM,
+  );
+
+  if (existingSessionId) {
+    return existingSessionId;
+  }
+
+  const sessionId = crypto.randomUUID();
+  nextUrl.searchParams.set(PORTAL_CREATION_SESSION_QUERY_PARAM, sessionId);
+  window.history.replaceState(null, "", nextUrl.toString());
+
+  return sessionId;
+};
+
+const replacePortalUrlWithWorldId = (worldId: string) => {
+  const nextUrl = new URL(window.location.href);
+  nextUrl.searchParams.set("worldId", worldId);
+  nextUrl.searchParams.delete(PORTAL_CREATION_SESSION_QUERY_PARAM);
+  window.history.replaceState(null, "", nextUrl.toString());
+};
+
+const loadRuntimeSnapshotEffect = (
+  actorDisplayName: string,
+  worldId: string,
+) =>
+  getWorldRuntime({
+    actorDisplayName,
+    worldId,
+  }).pipe(Effect.map((response) => response.snapshot));
+
+type RunResult<A> =
+  | { readonly _tag: "failure"; readonly error: unknown }
+  | { readonly _tag: "success"; readonly value: A };
+
+const runPromiseEffect = <A, E>(effect: Effect.Effect<A, E, unknown>) =>
+  runPromise(effect as Effect.Effect<A, E, BrowserStorage>);
+
+const runResult = <A, E>(effect: Effect.Effect<A, E, unknown>) =>
+  runPromiseEffect(
+    (effect as Effect.Effect<A, E, BrowserStorage>).pipe(
+      Effect.match({
+        onFailure: (error): RunResult<A> => ({ _tag: "failure", error }),
+        onSuccess: (value): RunResult<A> => ({ _tag: "success", value }),
+      }),
+    ),
+  );
+
+const withOperationSpan = <A, E, R>(
+  name: string,
+  attributes: Record<string, unknown>,
+  effect: Effect.Effect<A, E, R>,
+) =>
+  withWorldFlowSpan(
+    name,
+    attributes,
+    effect.pipe(
+      Effect.tap(() =>
+        Effect.annotateCurrentSpan({
+          "operation.success": true,
+        }),
+      ),
+      Effect.tapError(() =>
+        Effect.annotateCurrentSpan({
+          "operation.success": false,
+        }),
+      ),
+    ),
+  );
+
+const readStoredDisplayNameEffect = () =>
+  readStoredActorDisplayName().pipe(
+    Effect.option,
+    Effect.map(Option.getOrUndefined),
+  );
 
 function useInterfaceSound(
   path: string,
@@ -367,7 +484,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 function App() {
   const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
 
-  if (pathname === "/world" || pathname === "/worlds") {
+  if (pathname === "/play") {
     const searchParams = new URLSearchParams(window.location.search);
 
     if (searchParams.get("scene") === "models") {
@@ -506,64 +623,6 @@ function PauseMenuOverlay({
   );
 }
 
-function StartScreenOverlay({
-  onPlay,
-  onPlayIntent,
-  buttonLabel = "Begin shift",
-  caption = "BAR-001 · FLA-002 · FRO-003 · RPA-004",
-  copy,
-  disabled = false,
-  playHoverSound,
-}: {
-  readonly onPlay: () => void;
-  readonly onPlayIntent?: () => void;
-  readonly buttonLabel?: string;
-  readonly caption?: string;
-  readonly copy?: string;
-  readonly disabled?: boolean;
-  readonly playHoverSound: () => void;
-}) {
-  return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-10 flex justify-center px-4 pb-[clamp(1.5rem,4vh,3rem)]">
-      <div className="pointer-events-auto flex max-w-[28rem] flex-col items-center gap-3 rounded-[1.8rem] border border-white/22 bg-white/10 px-4 py-4 text-center shadow-[0_18px_60px_rgba(8,32,43,0.14)] backdrop-blur-md">
-        {copy ? (
-          <p className="max-w-[24rem] text-sm font-semibold leading-6 text-white/84 drop-shadow-[0_1px_3px_rgba(0,0,0,0.24)]">
-            {copy}
-          </p>
-        ) : null}
-        <button
-          type="button"
-          disabled={disabled}
-          className="pill-button pill-button-secondary min-w-[16rem]"
-          onPointerEnter={() => {
-            onPlayIntent?.();
-            playHoverSound();
-          }}
-          onFocus={() => {
-            onPlayIntent?.();
-            playHoverSound();
-          }}
-          onPointerDown={() => {
-            onPlayIntent?.();
-          }}
-          onClick={onPlay}
-        >
-          <img
-            className="pill-button-icon"
-            src="/kits/ui/icon_play_dark.svg"
-            alt=""
-            aria-hidden="true"
-          />
-          <span>{buttonLabel}</span>
-        </button>
-        <p className="text-xs font-bold tracking-[0.16em] text-white/70 drop-shadow-[0_1px_3px_rgba(0,0,0,0.3)]">
-          {caption}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function TitleActionButton({
   children,
   disabled = false,
@@ -601,6 +660,69 @@ function TitleActionButton({
   );
 }
 
+function WorldRemovalAlert({
+  disabled,
+  message,
+  onCancel,
+  onConfirm,
+  onPointerEnter,
+  worldName,
+}: {
+  readonly disabled: boolean;
+  readonly message: string | null;
+  readonly onCancel: () => void;
+  readonly onConfirm: () => void;
+  readonly onPointerEnter: () => void;
+  readonly worldName: string;
+}) {
+  return (
+    <div className="world-remove-alert-overlay">
+      <div
+        className="world-remove-alert"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="world-remove-alert-title"
+        aria-describedby="world-remove-alert-copy"
+      >
+        <p className="game-panel-label">Remove world?</p>
+        <h2 id="world-remove-alert-title" className="world-remove-alert-title">
+          {worldName}
+        </h2>
+        <p id="world-remove-alert-copy" className="game-panel-copy">
+          This will permanently remove the world from your saves.
+        </p>
+        {message ? (
+          <p className="game-panel-message game-panel-message-error">
+            {message}
+          </p>
+        ) : null}
+        <div className="world-remove-alert-actions">
+          <button
+            type="button"
+            disabled={disabled}
+            className="game-btn game-btn-secondary"
+            onClick={onCancel}
+            onPointerEnter={onPointerEnter}
+            onFocus={onPointerEnter}
+          >
+            Keep world
+          </button>
+          <button
+            type="button"
+            disabled={disabled}
+            className="game-btn game-btn-danger"
+            onClick={onConfirm}
+            onPointerEnter={onPointerEnter}
+            onFocus={onPointerEnter}
+          >
+            {disabled ? "Removing..." : "Remove world"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const VOSS_INTRO_LINES: readonly VossLine[] = [
   {
     text: "Operator. You have been assigned to extraction site GPY-7, codename Silicon. GeePeeYou thanks you for your continued compliance.",
@@ -616,40 +738,98 @@ const VOSS_INTRO_LINES: readonly VossLine[] = [
   },
 ];
 
+const WIP_SIGN_LINES: readonly VossLine[] = [
+  {
+    text: "Ah. The WIP sign. A monument to optimism.",
+    sound: "printer",
+  },
+  {
+    text: "It stands for 'Work In Progress'. Much like your career here.",
+    sound: "chime",
+  },
+  {
+    text: "Updates are scheduled. Return dates are not.",
+    sound: "dialup",
+  },
+  {
+    text: "GeePeeYou thanks you for your patience. Your patience has been noted and filed.",
+    sound: "shutdown",
+  },
+];
+
 const BUILD_MODE_CURSOR_CLASS = "build-mode";
 
 function WorldApp() {
-  const searchParams = new URLSearchParams(window.location.search);
+  const locationSearch = window.location.search;
+  const searchParams = new URLSearchParams(locationSearch);
   const isMockWorld = searchParams.get("mock") === "1";
   const selectedWorldId = searchParams.get("worldId");
   const isResumeEntry = searchParams.get("entry") === "resume";
-  const shouldAutoStart = searchParams.get("autostart") === "1" || isMockWorld;
-  const [hasStarted, setHasStarted] = useState(isMockWorld || isResumeEntry);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isAwaitingIntro, setIsAwaitingIntro] = useState(
-    isMockWorld || isResumeEntry,
+
+  // Portal entry detection for Vibe Jam 2026 webring
+  const isPortalEntry = isPortalHandoff(searchParams);
+  const portalParams = useMemo(
+    () =>
+      Match.value(isPortalEntry).pipe(
+        Match.when(true, () =>
+          parsePortalParams(new URLSearchParams(locationSearch)),
+        ),
+        Match.orElse(() => null),
+      ),
+    [isPortalEntry, locationSearch],
   );
-  const [isStartScreenReady, setIsStartScreenReady] = useState(false);
+
+  const [hasStarted, setHasStarted] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isAwaitingIntro, setIsAwaitingIntro] = useState(false);
   const [activeWorldMenu, setActiveWorldMenu] = useState<Exclude<
     WorldMenuAction,
     "settings"
   > | null>(null);
   const [activeBuildId, setActiveBuildId] = useState<string | null>(null);
   const [vossLines, setVossLines] = useState<readonly VossLine[] | null>(null);
-  const [selectedWorld, setSelectedWorld] = useState<SelectedWorldState>(() =>
-    isMockWorld
-      ? { _tag: "mock" }
-      : selectedWorldId === null
-        ? {
+  const [portalModal, setPortalModal] = useState<"entry" | "exit" | null>(null);
+  const [selectedWorld, setSelectedWorld] = useState<SelectedWorldState>(
+    (): SelectedWorldState =>
+      Match.value({ isMockWorld, isPortalEntry, selectedWorldId }).pipe(
+        Match.when(
+          { isMockWorld: true },
+          (): SelectedWorldState => ({ _tag: "mock" }),
+        ),
+        Match.when(
+          { selectedWorldId: Match.string },
+          ({ selectedWorldId: worldId }): SelectedWorldState => ({
+            _tag: "loading",
+            worldId,
+          }),
+        ),
+        Match.when(
+          { isPortalEntry: true },
+          (): SelectedWorldState => ({ _tag: "creating" }),
+        ),
+        Match.orElse(
+          (): SelectedWorldState => ({
             _tag: "error",
             message: "No world was selected from the title screen.",
-          }
-        : {
-            _tag: "loading",
-            worldId: selectedWorldId,
-          },
+          }),
+        ),
+      ),
   );
   const resumeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const portalCreatedWorldIdRef = useRef<string | null>(null);
+  const selectedWorldPortalParams = Match.value(selectedWorld).pipe(
+    Match.when({ _tag: "ready" }, ({ portalParams }) => portalParams),
+    Match.orElse(() => undefined),
+  );
+  const activePortalParams = Option.getOrNull(
+    Option.orElse(
+      Option.filter(Option.fromNullishOr(portalParams), hasPortalParams),
+      () => Option.fromUndefinedOr(selectedWorldPortalParams),
+    ),
+  );
+  const isActivePortalEntry =
+    isPortalEntry || selectedWorldPortalParams !== undefined;
+  const hasBackPortal = Boolean(activePortalParams?.ref);
   const playHoverSound = useInterfaceSound(
     "/kits/sounds/select_003.ogg",
     0.088,
@@ -658,41 +838,12 @@ function WorldApp() {
   const playClickSound = useInterfaceSound("/kits/sounds/click_001.ogg", 0.35);
 
   useEffect(() => {
-    if (hasStarted) {
+    if (!isPortalEntry) {
       return;
     }
 
-    logWorldLoadEventOnce(
-      "start-page-starts-to-load",
-      "Start page starts to load",
-    );
-  }, [hasStarted]);
-
-  useEffect(() => {
-    if (hasStarted) {
-      setIsStartScreenReady(false);
-      return;
-    }
-
-    const handleStartScreenReady = () => {
-      setIsStartScreenReady(true);
-    };
-
-    window.addEventListener(
-      START_SCREEN_VISUAL_READY_EVENT,
-      handleStartScreenReady,
-      {
-        once: true,
-      },
-    );
-
-    return () => {
-      window.removeEventListener(
-        START_SCREEN_VISUAL_READY_EVENT,
-        handleStartScreenReady,
-      );
-    };
-  }, [hasStarted]);
+    storePortalSession(parsePortalParams(new URLSearchParams(locationSearch)));
+  }, [isPortalEntry, locationSearch]);
 
   useEffect(() => {
     if (isMockWorld) {
@@ -701,6 +852,10 @@ function WorldApp() {
     }
 
     if (selectedWorldId === null) {
+      if (isPortalEntry) {
+        return;
+      }
+
       setSelectedWorld({
         _tag: "error",
         message: "No world was selected from the title screen.",
@@ -708,47 +863,88 @@ function WorldApp() {
       return;
     }
 
+    if (
+      isPortalEntry &&
+      portalCreatedWorldIdRef.current !== null &&
+      portalCreatedWorldIdRef.current === selectedWorldId
+    ) {
+      return;
+    }
+
     let cancelled = false;
 
     const loadSelectedWorld = async () => {
+      logWorldLoadEventOnce("world-starts-to-load", "World starts to load");
       setSelectedWorld({ _tag: "loading", worldId: selectedWorldId });
 
-      try {
-        const storedDisplayName = await Effect.runPromise(
-          readStoredActorDisplayName(),
-        );
-        const actorDisplayName = storedDisplayName ?? makeRandomUsername();
-        const response = await Effect.runPromise(
-          getWorld({
-            actorDisplayName,
-            worldId: selectedWorldId,
+      const loadedWorldResult = await runResult(
+        withOperationSpan(
+          "web.world.load",
+          {
+            operation: "world.load",
+            "portal.entry": isPortalEntry,
+            "world.id": selectedWorldId,
+          },
+          Effect.gen(function* () {
+            const storedDisplayName = yield* readStoredDisplayNameEffect();
+            const actorDisplayName = yield* resolveActorDisplayName({
+              allowAutoGenerated: !isPortalEntry,
+              autoGeneratedUsername: makeRandomUsername(),
+              configuredUsername: storedDisplayName,
+              defaultUsername: DEFAULT_PORTAL_USERNAME,
+              queryUsername: portalParams?.username,
+            });
+            const response = yield* getWorld({
+              actorDisplayName,
+              worldId: selectedWorldId,
+            });
+            const runtimeSnapshot = yield* loadRuntimeSnapshotEffect(
+              actorDisplayName,
+              response.world.worldId,
+            );
+
+            return {
+              response,
+              runtimeSnapshot,
+            };
           }),
-        );
+        ),
+      );
 
-        if (cancelled) {
-          return;
-        }
-
-        writeLastAccessedWorldId(response.world.worldId);
-        setSelectedWorld({
-          _tag: "ready",
-          hostAssetId:
-            response.world.spec?.hostAssetId ?? readPreferredAssetId(),
-          mode: response.world.mode,
-          worldId: response.world.worldId,
-          worldName: response.world.worldName,
-        });
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-
-        setSelectedWorld({
-          _tag: "error",
-          message: getErrorMessage(error),
-          worldId: selectedWorldId,
-        });
+      if (cancelled) {
+        return;
       }
+
+      Match.value(loadedWorldResult).pipe(
+        Match.when({ _tag: "success" }, ({ value }) => {
+          const { response, runtimeSnapshot } = value;
+          const loadedPortalParams = response.world.spec?.portal?.queryParams;
+
+          if (loadedPortalParams) {
+            storePortalSession(loadedPortalParams);
+          }
+
+          writeLastAccessedWorldId(response.world.worldId);
+          setSelectedWorld({
+            _tag: "ready",
+            hostAssetId:
+              response.world.spec?.hostAssetId ?? readPreferredAssetId(),
+            mode: response.world.mode,
+            portalParams: loadedPortalParams,
+            runtimeSnapshot,
+            worldId: response.world.worldId,
+            worldName: response.world.worldName,
+          });
+        }),
+        Match.when({ _tag: "failure" }, ({ error }) => {
+          setSelectedWorld({
+            _tag: "error",
+            message: getErrorMessage(error),
+            worldId: selectedWorldId,
+          });
+        }),
+        Match.exhaustive,
+      );
     };
 
     void loadSelectedWorld();
@@ -756,11 +952,124 @@ function WorldApp() {
     return () => {
       cancelled = true;
     };
-  }, [isMockWorld, selectedWorldId]);
+  }, [isMockWorld, isPortalEntry, selectedWorldId, portalParams?.username]);
 
-  const handlePlayIntent = () => {
-    void preloadWorldExperience();
-  };
+  // Portal entry: auto-create a solo world for the visitor
+  useEffect(() => {
+    if (!isPortalEntry || selectedWorld._tag !== "creating") {
+      return;
+    }
+
+    let cancelled = false;
+
+    const createPortalWorld = async () => {
+      const createdWorldResult = await runResult(
+        withOperationSpan(
+          "web.world.create.portal",
+          {
+            operation: "world.create.portal",
+            "portal.entry": true,
+          },
+          Effect.gen(function* () {
+            const portalSessionId = ensurePortalCreationSessionIdInUrl();
+            const storedDisplayName = yield* readStoredDisplayNameEffect();
+            const actorDisplayName = yield* resolveActorDisplayName({
+              allowAutoGenerated: false,
+              autoGeneratedUsername: makeRandomUsername(),
+              configuredUsername: storedDisplayName,
+              defaultUsername: DEFAULT_PORTAL_USERNAME,
+              queryUsername: portalParams?.username,
+            });
+            const storedDraft = readPortalWorldDraft(portalSessionId);
+            const portalWorldDraft =
+              storedDraft?.actorDisplayName === actorDisplayName
+                ? storedDraft
+                : {
+                    actorDisplayName,
+                    hostAssetId: pickRandomAssetId(),
+                    idempotencyKey: crypto.randomUUID(),
+                    sessionId: portalSessionId,
+                    worldName: makePortalWorldName(
+                      actorDisplayName,
+                      portalSessionId,
+                    ),
+                  };
+
+            if (portalWorldDraft !== storedDraft) {
+              storePortalWorldDraft(portalWorldDraft);
+            }
+
+            const response = yield* createWorld({
+              actorDisplayName,
+              request: {
+                hostAssetId: portalWorldDraft.hostAssetId,
+                idempotencyKey: portalWorldDraft.idempotencyKey,
+                mode: "solo",
+                portal: { queryParams: portalParams ?? {} },
+                visibility: "private",
+                worldName: portalWorldDraft.worldName,
+              },
+            });
+            const runtimeSnapshot = yield* loadRuntimeSnapshotEffect(
+              actorDisplayName,
+              response.world.worldId,
+            );
+
+            return {
+              portalSessionId,
+              portalWorldDraft,
+              response,
+              runtimeSnapshot,
+            };
+          }),
+        ),
+      );
+
+      if (cancelled) {
+        return;
+      }
+
+      Match.value(createdWorldResult).pipe(
+        Match.when({ _tag: "success" }, ({ value }) => {
+          const { portalSessionId, portalWorldDraft, response, runtimeSnapshot } =
+            value;
+          const createdPortalParams =
+            response.world.spec?.portal?.queryParams ?? portalParams ?? {};
+
+          storePortalSession(createdPortalParams);
+          writeLastAccessedWorldId(response.world.worldId);
+          portalCreatedWorldIdRef.current = response.world.worldId;
+          replacePortalUrlWithWorldId(response.world.worldId);
+          clearPortalWorldDraft(portalSessionId);
+          setSelectedWorld({
+            _tag: "ready",
+            hostAssetId:
+              response.world.spec?.hostAssetId ?? portalWorldDraft.hostAssetId,
+            mode: response.world.mode,
+            portalParams: createdPortalParams,
+            runtimeSnapshot,
+            worldId: response.world.worldId,
+            worldName: response.world.worldName,
+          });
+
+          void preloadWorldExperience();
+        }),
+        Match.when({ _tag: "failure" }, ({ error }) => {
+          setSelectedWorld({
+            _tag: "error",
+            message: getErrorMessage(error),
+          });
+        }),
+        Match.exhaustive,
+      );
+    };
+
+    void createPortalWorld();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isPortalEntry, selectedWorld._tag, portalParams?.username]);
 
   useEffect(() => {
     if (!isResumeEntry) {
@@ -771,20 +1080,17 @@ function WorldApp() {
     void preloadWorldExperience();
   }, [isResumeEntry]);
 
-  const enterWorld = (withClickSound: boolean) => {
+  useEffect(() => {
+    if (hasStarted) {
+      return;
+    }
+
     if (selectedWorld._tag !== "ready" && selectedWorld._tag !== "mock") {
       return;
     }
 
-    logWorldLoadEvent(
-      withClickSound
-        ? "User clicked on start shift"
-        : "World autostart requested",
-    );
+    logWorldLoadEventOnce("world-route-started", "World route started");
     void preloadWorldExperience();
-    if (withClickSound) {
-      playClickSound();
-    }
     startTransition(() => {
       setHasStarted(true);
       setActiveBuildId(null);
@@ -792,19 +1098,7 @@ function WorldApp() {
       setIsAwaitingIntro(true);
       setVossLines(null);
     });
-  };
-
-  const handlePlay = () => {
-    enterWorld(true);
-  };
-
-  useEffect(() => {
-    if (!shouldAutoStart || hasStarted) {
-      return;
-    }
-
-    enterWorld(false);
-  }, [hasStarted, selectedWorld, shouldAutoStart]);
+  }, [hasStarted, selectedWorld]);
 
   const handleResume = () => {
     playClickSound();
@@ -835,7 +1129,11 @@ function WorldApp() {
   // Escape key for pause menu (blocked when Voss dialog is open)
   useEffect(() => {
     const appRoot = document.getElementById("app");
-    const cursorRoots = [document.body, document.documentElement, appRoot].filter(
+    const cursorRoots = [
+      document.body,
+      document.documentElement,
+      appRoot,
+    ].filter(
       (element): element is HTMLElement => element instanceof HTMLElement,
     );
     const isBuildModeActive =
@@ -971,37 +1269,26 @@ function WorldApp() {
     return () => window.removeEventListener("voss-dialog", handleVossEvent);
   }, []);
 
+  // Listen for building interaction events from the 3D world
   useEffect(() => {
-    if (hasStarted || !isStartScreenReady) {
-      return;
-    }
-
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    let idleId: number | undefined;
-
-    timeoutId = setTimeout(() => {
-      if ("requestIdleCallback" in window) {
-        idleId = window.requestIdleCallback(
-          () => {
-            void preloadWorldExperience();
-          },
-          { timeout: 150 },
-        );
-        return;
-      }
-
-      void preloadWorldExperience();
-    }, 900);
-
-    return () => {
-      if (timeoutId !== undefined) {
-        clearTimeout(timeoutId);
-      }
-      if (idleId !== undefined && "cancelIdleCallback" in window) {
-        window.cancelIdleCallback(idleId);
-      }
+    const handleBuildingInteract = (e: Event) => {
+      const { id } = (e as CustomEvent<{ id: string }>).detail;
+      Match.value(id).pipe(
+        Match.when("wip-sign", () =>
+          window.dispatchEvent(
+            new CustomEvent("voss-dialog", { detail: WIP_SIGN_LINES }),
+          ),
+        ),
+        Match.when("portal-entry", () => setPortalModal("entry")),
+        Match.when("portal-exit", () => setPortalModal("exit")),
+        Match.orElse(() => undefined),
+      );
     };
-  }, [hasStarted, isStartScreenReady]);
+
+    window.addEventListener("building-interact", handleBuildingInteract);
+    return () =>
+      window.removeEventListener("building-interact", handleBuildingInteract);
+  }, []);
 
   useEffect(() => {
     if (!hasStarted || !isAwaitingIntro) {
@@ -1009,6 +1296,7 @@ function WorldApp() {
     }
 
     const handleWorldVisualReady = () => {
+      logWorldLoadEventOnce("world-visual-ready", "World visuals ready");
       if (!isResumeEntry) {
         setVossLines(VOSS_INTRO_LINES);
       }
@@ -1019,7 +1307,18 @@ function WorldApp() {
       once: true,
     });
 
+    // Fallback: if the event doesn't fire within 3 seconds, unlock anyway
+    // This prevents the character from being stuck if the event races
+    const fallbackTimeout = setTimeout(() => {
+      logWorldLoadEventOnce(
+        "world-visual-ready-timeout",
+        "World visual ready timeout fallback",
+      );
+      setIsAwaitingIntro(false);
+    }, 3000);
+
     return () => {
+      clearTimeout(fallbackTimeout);
       window.removeEventListener(
         WORLD_VISUAL_READY_EVENT,
         handleWorldVisualReady,
@@ -1027,27 +1326,37 @@ function WorldApp() {
     };
   }, [hasStarted, isAwaitingIntro, isResumeEntry]);
 
-  const activeAssetId =
-    selectedWorld._tag === "ready"
-      ? selectedWorld.hostAssetId
-      : readPreferredAssetId();
+  const activeAssetId = Match.value(selectedWorld).pipe(
+    Match.when({ _tag: "ready" }, ({ hostAssetId }) => hostAssetId),
+    Match.orElse(() => readPreferredAssetId()),
+  );
 
   return (
     <>
       <Suspense
-        fallback={
-          hasStarted ? (
-            <div className="stage stage-loading">Loading world...</div>
-          ) : null
-        }
+        fallback={<div className="stage stage-loading">Loading world...</div>}
       >
         {hasStarted ? (
           <World
             assetId={activeAssetId}
-            isPaused={isMenuOpen || !!vossLines || isAwaitingIntro}
+            isPaused={
+              isMenuOpen || !!vossLines || !!portalModal || isAwaitingIntro
+            }
+            isPortalEntry={isActivePortalEntry}
+            hasBackPortal={hasBackPortal}
+            portalParams={activePortalParams}
+            runtimeSnapshot={
+              selectedWorld._tag === "ready"
+                ? selectedWorld.runtimeSnapshot
+                : undefined
+            }
           />
         ) : (
-          <StartScreenScene />
+          <div className="stage stage-loading">
+            {selectedWorld._tag === "error"
+              ? `World unavailable: ${selectedWorld.message}`
+              : "Loading world..."}
+          </div>
         )}
       </Suspense>
 
@@ -1064,6 +1373,25 @@ function WorldApp() {
 
       {hasStarted && vossLines ? (
         <VossDialog lines={vossLines} onComplete={() => setVossLines(null)} />
+      ) : null}
+
+      {hasStarted && portalModal ? (
+        <PortalModal
+          portalType={portalModal}
+          onEnter={() => {
+            const params = Option.getOrNull(
+              Option.orElse(Option.fromNullishOr(activePortalParams), () =>
+                Option.fromNullishOr(readPortalSession()),
+              ),
+            );
+            Match.value(portalModal).pipe(
+              Match.when("exit", () => redirectToPortal(params)),
+              Match.when("entry", () => redirectBackToRef(params)),
+              Match.exhaustive,
+            );
+          }}
+          onClose={() => setPortalModal(null)}
+        />
       ) : null}
 
       {hasStarted && !isMenuOpen && !vossLines && !isAwaitingIntro ? (
@@ -1091,47 +1419,18 @@ function WorldApp() {
       ) : null}
 
       {hasStarted ? <Chatbox characterTag={activeAssetId} /> : null}
-
-      {hasStarted ? null : (
-        <StartScreenOverlay
-          buttonLabel={
-            selectedWorld._tag === "mock"
-              ? "Begin mocked shift"
-              : selectedWorld._tag === "ready"
-                ? "Begin shift"
-                : "World unavailable"
-          }
-          caption={
-            selectedWorld._tag === "mock"
-              ? "Mocked world · backend bypass"
-              : selectedWorld._tag === "ready"
-                ? `${selectedWorld.worldName} · ${selectedWorld.mode.toUpperCase()}`
-                : "Return to title to choose or create a world"
-          }
-          copy={
-            selectedWorld._tag === "mock"
-              ? "Mocked world fallback enabled. This keeps the old scene-testing path available while the real world bootstrap is being wired up."
-              : selectedWorld._tag === "ready"
-                ? `Connected to ${selectedWorld.worldName}. Control-plane selection is backed by the world registry; runtime syncing is the next hookup.`
-                : selectedWorld._tag === "error"
-                  ? selectedWorld.message
-                  : "Loading selected world..."
-          }
-          disabled={
-            selectedWorld._tag !== "ready" && selectedWorld._tag !== "mock"
-          }
-          onPlay={handlePlay}
-          onPlayIntent={handlePlayIntent}
-          playHoverSound={playHoverSound}
-        />
-      )}
     </>
   );
 }
 
 function HomeApp() {
   const [seedUsername] = useState(makeRandomUsername);
-  const [apiStatus, setApiStatus] = useState<ApiStatus>({
+  const homeLocationSearch = window.location.search;
+  const isHomePortalEntry = useMemo(
+    () => isPortalHandoff(new URLSearchParams(homeLocationSearch)),
+    [homeLocationSearch],
+  );
+  const [_apiStatus, setApiStatus] = useState<ApiStatus>({
     _tag: "loading",
   });
   const [activePanel, setActivePanel] = useState<HomePanel>("root");
@@ -1143,7 +1442,13 @@ function HomeApp() {
   const [worlds, setWorlds] = useState<readonly WorldSummary[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRemovingWorld, setIsRemovingWorld] = useState(false);
+  const [pendingWorldRemoval, setPendingWorldRemoval] =
+    useState<PendingWorldRemoval | null>(null);
   const [panelMessage, setPanelMessage] = useState<string | null>(null);
+  const [removeWorldMessage, setRemoveWorldMessage] = useState<string | null>(
+    null,
+  );
   const playHoverSound = useInterfaceSound(
     "/kits/sounds/select_003.ogg",
     0.088,
@@ -1151,69 +1456,76 @@ function HomeApp() {
   );
   const playClickSound = useInterfaceSound("/kits/sounds/click_001.ogg", 0.35);
 
-  const loadWorldDirectory = async (actorDisplayName: string) => {
+  const loadWorldDirectory = useCallback(async (actorDisplayName: string) => {
     setIsRefreshing(true);
 
-    try {
-      const response = await Effect.runPromise(
-        listOwnWorlds({ actorDisplayName }),
-      );
-      setWorlds(response.worlds);
-      setApiStatus({
-        _tag: "ready",
-        message:
-          response.worlds.length === 0
-            ? "World registry online"
-            : response.worlds.length === 1
-              ? "1 world indexed"
-              : `${response.worlds.length} worlds indexed`,
-      });
-    } catch (error) {
-      setWorlds([]);
-      setApiStatus({
-        _tag: "error",
-        message: getErrorMessage(error),
-      });
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
+    const directoryResult = await runResult(listOwnWorlds({ actorDisplayName }));
+
+    Match.value(directoryResult).pipe(
+      Match.when({ _tag: "success" }, ({ value: response }) => {
+        setWorlds(response.worlds);
+        setApiStatus({
+          _tag: "ready",
+          message:
+            response.worlds.length === 0
+              ? "World registry online"
+              : response.worlds.length === 1
+                ? "1 world indexed"
+                : `${response.worlds.length} worlds indexed`,
+        });
+      }),
+      Match.when({ _tag: "failure" }, ({ error }) => {
+        setWorlds([]);
+        setApiStatus({
+          _tag: "error",
+          message: getErrorMessage(error),
+        });
+      }),
+      Match.exhaustive,
+    );
+
+    setIsRefreshing(false);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
 
     const bootstrapHome = async () => {
       const fallbackUsername = seedUsername;
+      const actorDisplayName = await runPromiseEffect(
+        withOperationSpan(
+          "web.home.bootstrap",
+          {
+            operation: "home.bootstrap",
+            "portal.entry": isHomePortalEntry,
+          },
+          Effect.gen(function* () {
+            const [storedDisplayName, portalQueryUsername] = yield* Effect.all(
+              [
+                readStoredDisplayNameEffect(),
+                readPortalQueryUsername(homeLocationSearch),
+              ],
+              { concurrency: "unbounded" },
+            );
+            return yield* resolveActorDisplayName({
+              allowAutoGenerated: !isHomePortalEntry,
+              autoGeneratedUsername: fallbackUsername,
+              configuredUsername: storedDisplayName,
+              defaultUsername: DEFAULT_PORTAL_USERNAME,
+              queryUsername: portalQueryUsername,
+            });
+          }),
+        ),
+      );
 
-      try {
-        const storedDisplayName = await Effect.runPromise(
-          readStoredActorDisplayName(),
-        );
-        const actorDisplayName = storedDisplayName ?? fallbackUsername;
-
-        if (cancelled) {
-          return;
-        }
-
-        setPreferredUsername(actorDisplayName);
-        setSettingsUsername(actorDisplayName);
-        setNewWorldDraft(
-          makeNewWorldDraft(actorDisplayName, readPreferredAssetId()),
-        );
-
-        await loadWorldDirectory(actorDisplayName);
-      } catch {
-        if (cancelled) {
-          return;
-        }
-
-        setPreferredUsername(fallbackUsername);
-        setSettingsUsername(fallbackUsername);
-        setNewWorldDraft(
-          makeNewWorldDraft(fallbackUsername, readPreferredAssetId()),
-        );
-        await loadWorldDirectory(fallbackUsername);
+      if (cancelled) {
+        return;
       }
+
+      setPreferredUsername(actorDisplayName);
+      setSettingsUsername(actorDisplayName);
+      setNewWorldDraft(makeNewWorldDraft(actorDisplayName, readPreferredAssetId()));
+      await loadWorldDirectory(actorDisplayName);
     };
 
     void bootstrapHome();
@@ -1221,13 +1533,14 @@ function HomeApp() {
     return () => {
       cancelled = true;
     };
-  }, [seedUsername]);
+  }, [seedUsername, loadWorldDirectory, isHomePortalEntry, homeLocationSearch]);
 
   // Dispatch character selection to the 3D scene for the arrow indicator
   useEffect(() => {
-    const selectedAsset = activePanel === "new-world"
-      ? assetChoices.find((a) => a.assetId === newWorldDraft.hostAssetId)
-      : null;
+    const selectedAsset =
+      activePanel === "new-world"
+        ? assetChoices.find((a) => a.assetId === newWorldDraft.hostAssetId)
+        : null;
 
     window.dispatchEvent(
       new CustomEvent(CHARACTER_SELECT_EVENT, {
@@ -1289,13 +1602,67 @@ function HomeApp() {
 
   const handleLaunchWorld = (worldId: string) => {
     playClickSound();
-    goToWorld(worldId, { autostart: true });
+    goToWorld(worldId, { entry: "resume" });
+  };
+
+  const handleRequestRemoveWorld = (world: WorldSummary) => {
+    playClickSound();
+    setPanelMessage(null);
+    setRemoveWorldMessage(null);
+    setPendingWorldRemoval({
+      worldId: world.worldId,
+      worldName: world.worldName,
+    });
+  };
+
+  const handleCancelRemoveWorld = () => {
+    playClickSound();
+    setPendingWorldRemoval(null);
+    setRemoveWorldMessage(null);
+  };
+
+  const handleConfirmRemoveWorld = async () => {
+    const world = pendingWorldRemoval;
+
+    if (world === null) {
+      return;
+    }
+
+    playClickSound();
+    setIsRemovingWorld(true);
+    setRemoveWorldMessage(null);
+    setPanelMessage(null);
+
+    const deleteResult = await runResult(
+      deleteWorld({
+        actorDisplayName: preferredUsername,
+        worldId: world.worldId,
+      }),
+    );
+
+    await Match.value(deleteResult).pipe(
+      Match.when({ _tag: "success" }, async () => {
+        if (readLastAccessedWorldId() === world.worldId) {
+          clearLastAccessedWorldId();
+        }
+
+        await loadWorldDirectory(preferredUsername);
+        setPendingWorldRemoval(null);
+        setPanelMessage(`${world.worldName} removed.`);
+      }),
+      Match.when({ _tag: "failure" }, ({ error }) => {
+        setRemoveWorldMessage(getErrorMessage(error));
+      }),
+      Match.exhaustive,
+    );
+
+    setIsRemovingWorld(false);
   };
 
   const handleLaunchMockWorld = () => {
     playClickSound();
     const nextUrl = new URL(window.location.href);
-    nextUrl.pathname = "/world";
+    nextUrl.pathname = "/play";
     nextUrl.search = "?mock=1";
     window.location.assign(nextUrl.toString());
   };
@@ -1303,7 +1670,7 @@ function HomeApp() {
   const handleLaunchModelViewer = () => {
     playClickSound();
     const nextUrl = new URL(window.location.href);
-    nextUrl.pathname = "/world";
+    nextUrl.pathname = "/play";
     nextUrl.search = "";
     nextUrl.searchParams.set("scene", "models");
     window.location.assign(nextUrl.toString());
@@ -1330,34 +1697,45 @@ function HomeApp() {
     setIsSubmitting(true);
     setPanelMessage(null);
 
-    try {
-      await Effect.runPromise(
-        getOrCreateActorCredentials({ displayName: username }),
-      );
+    const createResult = await runResult(
+      withOperationSpan(
+        "web.world.create",
+        {
+          operation: "world.create",
+          "world.mode": newWorldDraft.mode,
+        },
+        Effect.gen(function* () {
+          yield* getOrCreateActorCredentials({ displayName: username });
 
-      setPreferredUsername(username);
-      setSettingsUsername(username);
-      writePreferredAssetId(newWorldDraft.hostAssetId);
-
-      const response = await Effect.runPromise(
-        createWorld({
-          actorDisplayName: username,
-          request: {
-            hostAssetId: newWorldDraft.hostAssetId,
-            idempotencyKey: crypto.randomUUID(),
-            mode: newWorldDraft.mode,
-            visibility: newWorldDraft.visibility,
-            worldName,
-          },
+          return yield* createWorld({
+            actorDisplayName: username,
+            request: {
+              hostAssetId: newWorldDraft.hostAssetId,
+              idempotencyKey: crypto.randomUUID(),
+              mode: newWorldDraft.mode,
+              visibility: newWorldDraft.visibility,
+              worldName,
+            },
+          });
         }),
-      );
+      ),
+    );
 
-      goToWorld(response.world.worldId, { autostart: true });
-    } catch (error) {
-      setPanelMessage(getErrorMessage(error));
-    } finally {
-      setIsSubmitting(false);
-    }
+    Match.value(createResult).pipe(
+      Match.when({ _tag: "success" }, ({ value: response }) => {
+        setPreferredUsername(username);
+        setSettingsUsername(username);
+        writePreferredAssetId(newWorldDraft.hostAssetId);
+
+        goToWorld(response.world.worldId);
+      }),
+      Match.when({ _tag: "failure" }, ({ error }) => {
+        setPanelMessage(getErrorMessage(error));
+      }),
+      Match.exhaustive,
+    );
+
+    setIsSubmitting(false);
   };
 
   const handleSaveSettings = async () => {
@@ -1371,24 +1749,35 @@ function HomeApp() {
     setIsSubmitting(true);
     setPanelMessage(null);
 
-    try {
-      await Effect.runPromise(
+    const saveResult = await runResult(
+      withOperationSpan(
+        "web.settings.save",
+        {
+          operation: "settings.save",
+        },
         getOrCreateActorCredentials({ displayName: username }),
-      );
-      setPreferredUsername(username);
-      setSettingsUsername(username);
-      setNewWorldDraft((current) => ({
-        ...current,
-        username,
-      }));
-      await loadWorldDirectory(username);
-      setPanelMessage("Username updated.");
-      setActivePanel("root");
-    } catch (error) {
-      setPanelMessage(getErrorMessage(error));
-    } finally {
-      setIsSubmitting(false);
-    }
+      ),
+    );
+
+    await Match.value(saveResult).pipe(
+      Match.when({ _tag: "success" }, async () => {
+        setPreferredUsername(username);
+        setSettingsUsername(username);
+        setNewWorldDraft((current) => ({
+          ...current,
+          username,
+        }));
+        await loadWorldDirectory(username);
+        setPanelMessage("Username updated.");
+        setActivePanel("root");
+      }),
+      Match.when({ _tag: "failure" }, ({ error }) => {
+        setPanelMessage(getErrorMessage(error));
+      }),
+      Match.exhaustive,
+    );
+
+    setIsSubmitting(false);
   };
 
   return (
@@ -1661,47 +2050,58 @@ function HomeApp() {
                         world.worldId === readLastAccessedWorldId();
 
                       return (
-                        <button
-                          key={world.worldId}
-                          type="button"
-                          disabled={!isReady}
-                          className="world-list-card"
-                          onClick={() => handleLaunchWorld(world.worldId)}
-                          onPointerEnter={playHoverSound}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="world-list-card-name">
-                                {world.worldName}
-                              </p>
-                              <p className="world-list-card-meta">
-                                {world.mode} · {world.visibility}
-                              </p>
-                            </div>
-                            <div className="flex flex-col items-end gap-1">
-                              {isLastAccessed ? (
-                                <span className="world-list-badge world-list-badge-recent">
-                                  Last played
-                                </span>
-                              ) : null}
-                              <span
-                                className={`world-list-badge ${
-                                  isReady
-                                    ? "world-list-badge-ready"
-                                    : "world-list-badge-building"
-                                }`}
-                              >
-                                {world.worldStatus.replaceAll("_", " ")}
-                              </span>
-                            </div>
-                          </div>
-                          <p
-                            className="world-list-card-meta"
-                            style={{ marginTop: "0.5rem" }}
+                        <div key={world.worldId} className="world-list-item">
+                          <button
+                            type="button"
+                            disabled={!isReady || isRemovingWorld}
+                            className="world-list-card"
+                            onClick={() => handleLaunchWorld(world.worldId)}
+                            onPointerEnter={playHoverSound}
                           >
-                            Updated {formatWorldTimestamp(world.updatedAt)}
-                          </p>
-                        </button>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="world-list-card-name">
+                                  {world.worldName}
+                                </p>
+                                <p className="world-list-card-meta">
+                                  {world.mode} · {world.visibility}
+                                </p>
+                              </div>
+                              <div className="flex flex-col items-end gap-1">
+                                {isLastAccessed ? (
+                                  <span className="world-list-badge world-list-badge-recent">
+                                    Last played
+                                  </span>
+                                ) : null}
+                                <span
+                                  className={`world-list-badge ${
+                                    isReady
+                                      ? "world-list-badge-ready"
+                                      : "world-list-badge-building"
+                                  }`}
+                                >
+                                  {world.worldStatus.replaceAll("_", " ")}
+                                </span>
+                              </div>
+                            </div>
+                            <p
+                              className="world-list-card-meta"
+                              style={{ marginTop: "0.5rem" }}
+                            >
+                              Updated {formatWorldTimestamp(world.updatedAt)}
+                            </p>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isRemovingWorld}
+                            className="world-list-remove-action"
+                            onClick={() => handleRequestRemoveWorld(world)}
+                            onPointerEnter={playHoverSound}
+                            onFocus={playHoverSound}
+                          >
+                            Remove
+                          </button>
+                        </div>
                       );
                     })
                   )}
@@ -1834,6 +2234,19 @@ function HomeApp() {
             ) : null}
           </div>
         </div>
+      ) : null}
+
+      {pendingWorldRemoval ? (
+        <WorldRemovalAlert
+          disabled={isRemovingWorld}
+          message={removeWorldMessage}
+          onCancel={handleCancelRemoveWorld}
+          onConfirm={() => {
+            void handleConfirmRemoveWorld();
+          }}
+          onPointerEnter={playHoverSound}
+          worldName={pendingWorldRemoval.worldName}
+        />
       ) : null}
     </>
   );

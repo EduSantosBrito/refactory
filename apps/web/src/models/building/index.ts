@@ -5,6 +5,7 @@ export { ContainerStorage } from "./ContainerStorage";
 export { Foundation } from "./Foundation";
 export { IndustrialSmelter } from "./IndustrialSmelter";
 export { Merger } from "./Merger";
+export { Portal } from "./Portal";
 export type {
   ModularBuildingProps,
   SideAttachmentDef,

@@ -31,6 +31,20 @@ body {
     pointer;
 }
 
+.interactable-hover,
+.interactable-hover * {
+  cursor:
+    url("/kits/cursors/hand_point.svg") 10 5,
+    pointer !important;
+}
+
+.camera-rotate-mode,
+.camera-rotate-mode * {
+  cursor:
+    url("/kits/cursors/rotate_horizontal_down.png") 16 16,
+    ew-resize;
+}
+
 button,
 a,
 [role="button"],
@@ -524,6 +538,23 @@ select:disabled {
     inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
+.game-btn-danger {
+  border-color: rgba(166, 63, 47, 0.35);
+  background: linear-gradient(180deg, #ffe2d9 0%, #ffad99 52%, #f26f55 100%);
+  color: #4a170f;
+  box-shadow:
+    0 4px 16px rgba(166, 63, 47, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.game-btn-danger:hover {
+  border-color: rgba(166, 63, 47, 0.5);
+  background: linear-gradient(180deg, #ffeae4 0%, #ffb9a8 52%, #f57b63 100%);
+  box-shadow:
+    0 6px 20px rgba(166, 63, 47, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.62);
+}
+
 /* Panel message (errors / confirmations) */
 .game-panel-message {
   margin: 0;
@@ -605,6 +636,13 @@ select:disabled {
 
 /* ── World list cards (Load Game panel) ──────────────────── */
 
+.world-list-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
 .world-list-card {
   width: 100%;
   border-radius: 0.85rem;
@@ -625,6 +663,33 @@ select:disabled {
 }
 
 .world-list-card:disabled {
+  opacity: 0.5;
+  transform: none;
+}
+
+.world-list-remove-action {
+  align-self: stretch;
+  border-radius: 0.75rem;
+  border: 2px solid rgba(166, 63, 47, 0.28);
+  background: linear-gradient(180deg, #fff1ed 0%, #f7d8cf 100%);
+  padding: 0 0.75rem;
+  font-family: Nunito, system-ui, sans-serif;
+  font-size: 0.7rem;
+  font-weight: 900;
+  color: #7a2b20;
+  transition:
+    transform 150ms ease,
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.world-list-remove-action:hover {
+  border-color: rgba(166, 63, 47, 0.46);
+  background: linear-gradient(180deg, #fff6f2 0%, #f8ded7 100%);
+  transform: translateY(-2px);
+}
+
+.world-list-remove-action:disabled {
   opacity: 0.5;
   transform: none;
 }
@@ -666,6 +731,48 @@ select:disabled {
 .world-list-badge-building {
   background: #ffeab8;
   color: #7a5000;
+}
+
+.world-remove-alert-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(60, 40, 10, 0.24);
+  backdrop-filter: blur(10px) saturate(1.05);
+  -webkit-backdrop-filter: blur(10px) saturate(1.05);
+}
+
+.world-remove-alert {
+  width: min(24rem, calc(100vw - 2rem));
+  padding: 1.1rem 1.2rem 1.2rem;
+  background: linear-gradient(180deg, #faf5ed 0%, #f0e8d8 100%);
+  border: 2.5px solid rgba(168, 132, 80, 0.35);
+  border-radius: 1.4rem;
+  text-align: center;
+  box-shadow:
+    0 0 0 4px rgba(240, 232, 216, 0.5),
+    0 1rem 3rem rgba(60, 40, 10, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  animation: panel-enter 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.world-remove-alert-title {
+  margin: 0.35rem 0 0.45rem;
+  font-family: Nunito, system-ui, sans-serif;
+  font-size: 1.3rem;
+  line-height: 1.15;
+  color: #3e3020;
+  overflow-wrap: anywhere;
+}
+
+.world-remove-alert-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  margin-top: 1rem;
 }
 
 .modal-shell {
@@ -1977,6 +2084,125 @@ select:disabled {
 }
 
 .inventory-hint kbd {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  margin: 0 0.1rem;
+  border-radius: 0.3rem;
+  border: 1.5px solid rgba(116, 146, 170, 0.3);
+  background: linear-gradient(180deg, #f0f4fa 0%, #e4eaf4 100%);
+  font-family: system-ui, sans-serif;
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: #4a6580;
+  box-shadow: 0 1px 0 rgba(116, 146, 170, 0.18);
+}
+
+/* ── Portal modal ──────────────────────────────────────── */
+
+.portal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(27, 45, 62, 0.22);
+  animation: portal-fade-in 0.2s ease-out;
+}
+
+@keyframes portal-fade-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.portal-modal {
+  width: min(26rem, calc(100vw - 2rem));
+  padding: 1.8rem 2rem 1.5rem;
+  border: 2.5px solid rgba(116, 146, 170, 0.22);
+  border-radius: 1.6rem;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.98) 0%,
+      rgba(245, 248, 254, 0.96) 100%
+    );
+  box-shadow:
+    0 0 0 5px rgba(255, 255, 255, 0.55),
+    0 1rem 3rem rgba(21, 56, 78, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
+  text-align: center;
+  animation: portal-pop-in 0.28s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+@keyframes portal-pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.92) translateY(1rem);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.portal-header {
+  margin-bottom: 0.8rem;
+}
+
+.portal-kicker {
+  display: inline-block;
+  padding: 0.25rem 0.9rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #e0f4f6 0%, #c8e8ec 100%);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #3a7a84;
+}
+
+.portal-title {
+  margin: 0.5rem 0 0;
+  font-family: Nunito, system-ui, sans-serif;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  line-height: 1;
+  color: #173b55;
+}
+
+.portal-divider {
+  width: min(8rem, 48%);
+  height: 0.625rem;
+  margin: 0 auto 1rem;
+  background: url("/kits/ui/divider_edges.svg") center / 100% 100% no-repeat;
+}
+
+.portal-description {
+  margin: 0 0 1.4rem;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #4a6580;
+}
+
+.portal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.portal-hint {
+  margin: 1rem 0 0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8fa3b8;
+}
+
+.portal-hint kbd {
   display: inline-block;
   padding: 0.1rem 0.45rem;
   margin: 0 0.1rem;

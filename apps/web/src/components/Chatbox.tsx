@@ -1,5 +1,6 @@
 import type { AssetId } from "@refactory/contracts/worlds";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getLocalStorageItem, setLocalStorageItem } from "../browserStorage";
 import { DEFAULT_ASSET_ID } from "../characterAssets";
 
 type ChatMessage = {
@@ -33,18 +34,12 @@ const NAME_KEY = "refactory.chat.name";
 const MAX_MESSAGES = 50;
 
 function getPlayerName(): string {
-  try {
-    const storedName = localStorage.getItem(NAME_KEY);
-    return !storedName || storedName === "Operator" ? "Brito" : storedName;
-  } catch {
-    return "Brito";
-  }
+  const storedName = getLocalStorageItem(NAME_KEY);
+  return !storedName || storedName === "Operator" ? "Brito" : storedName;
 }
 
 function setPlayerName(name: string) {
-  try {
-    localStorage.setItem(NAME_KEY, name);
-  } catch {}
+  void setLocalStorageItem(NAME_KEY, name);
 }
 
 export function Chatbox({ characterTag = DEFAULT_ASSET_ID as AssetId }) {

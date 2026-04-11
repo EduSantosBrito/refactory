@@ -7,24 +7,17 @@ import type {
   MeshStandardMaterial,
   PointLight,
   BufferGeometry,
-  ShaderMaterial,
 } from "three";
-import {
-  ExtrudeGeometry,
-  FrontSide,
-  IcosahedronGeometry,
-  Shape,
-  Vector3,
-} from "three";
+import { ExtrudeGeometry, IcosahedronGeometry, Shape } from "three";
 import {
   BELT_COLORS,
   BELT_MAT,
   DEFAULT_BELT_RATE_PER_MINUTE,
   resolveBeltSpeed,
 } from "../belt/constants";
+import { useGrooveMaterial } from "../belt/useGrooveMaterial";
 import { PortDock } from "../belt/PortDock";
 import { SMELTER_PORTS } from "../belt/ports";
-import { GROOVE_RUNNING, grooveFrag, grooveVert } from "../belt/shaders";
 import type { ModelProps } from "../colors";
 import type { StatusPoleStatus } from "../StatusPole";
 
@@ -200,29 +193,15 @@ function NarrowBeltRun({
   endCap,
   ...props
 }: NarrowBeltRunProps) {
-  const overlayRef = useRef<ShaderMaterial>(null);
+  const overlayRef = useRef<Mesh>(null);
   const beltSpeed = resolveBeltSpeed({ ratePerMinute });
   const repeat = length * BELT_GROOVE_REPEAT;
 
-  useFrame((_, delta) => {
-    const material = overlayRef.current;
-    if (!material) return;
-
-    const uniforms = material.uniforms as {
-      uTime: { value: number };
-      uRepeat: { value: number };
-      uOpacity: { value: number };
-      uColor: { value: Vector3 };
-    };
-
-    uniforms.uTime.value += delta * beltSpeed;
-    uniforms.uRepeat.value = repeat;
-    uniforms.uOpacity.value +=
-      (GROOVE_RUNNING.opacity - uniforms.uOpacity.value) * 0.1;
-    uniforms.uColor.value.lerp(
-      _grooveLerpTarget.set(...GROOVE_RUNNING.color),
-      0.1,
-    );
+  // Dual-mode groove material (GLSL for WebGL, TSL for WebGPU)
+  const { material: grooveMaterial } = useGrooveMaterial({
+    repeat,
+    running: true,
+    speed: beltSpeed,
   });
 
   return (
@@ -276,28 +255,14 @@ function NarrowBeltRun({
         </mesh>
       ))}
 
+      {/* ── Groove overlay — TSL scrolling motion lines ── */}
       <mesh
+        ref={overlayRef}
         position={[0, BELT_FRAME_H + 0.003, 0]}
         rotation={[-Math.PI / 2, 0, 0]}
+        material={grooveMaterial}
       >
         <planeGeometry args={[length, BELT_SURFACE_W]} />
-        <shaderMaterial
-          ref={overlayRef}
-          transparent
-          depthWrite={false}
-          side={FrontSide}
-          polygonOffset
-          polygonOffsetFactor={-4}
-          polygonOffsetUnits={-4}
-          vertexShader={grooveVert}
-          fragmentShader={grooveFrag}
-          uniforms={{
-            uTime: { value: 0 },
-            uRepeat: { value: repeat },
-            uOpacity: { value: GROOVE_RUNNING.opacity },
-            uColor: { value: new Vector3(...GROOVE_RUNNING.color) },
-          }}
-        />
       </mesh>
 
       {(endCap === "start" || endCap === "both") && (
@@ -338,8 +303,6 @@ type EmberSeed = {
   phase: number;
   driftX: number;
 };
-
-const _grooveLerpTarget = new Vector3();
 
 function SmokeParticles({ active }: { active: boolean }) {
   const refs = useRef<Mesh[]>([]);

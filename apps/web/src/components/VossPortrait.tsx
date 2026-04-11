@@ -32,7 +32,9 @@ export function VossPortrait() {
     <div className="voss-portrait">
       <div className="voss-portrait-canvas">
         <Canvas
-          frameloop="demand"
+          // "always" is required for lazy-loaded Suspense contexts;
+          // "demand" fails to trigger the first render frame
+          frameloop="always"
           dpr={1}
           gl={{ alpha: true, antialias: true, powerPreference: "low-power" }}
           camera={{

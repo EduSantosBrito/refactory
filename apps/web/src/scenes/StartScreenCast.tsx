@@ -1,6 +1,6 @@
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useRef, useState } from "react";
-import type { Mesh, Group } from "three";
+import type { Group } from "three";
 import { Character, type CharacterName } from "../models/Character";
 
 /** Event name used to communicate the selected character from UI to 3D scene */
@@ -10,7 +10,6 @@ interface CharacterSpec {
   readonly name: CharacterName;
   readonly position: [number, number, number];
   readonly rotationY: number;
-  readonly bobOffset: number;
   readonly color: string;
 }
 
@@ -22,28 +21,24 @@ const CHARACTERS: readonly CharacterSpec[] = [
     name: "Barbara",
     position: [-2.0, 0.06, 0.95],
     rotationY: 0.22,
-    bobOffset: 0,
     color: "#ffc000",
   },
   {
     name: "Fernando",
     position: [-0.7, 0.06, 0.35],
     rotationY: 0.08,
-    bobOffset: 0.7,
     color: "#ff0066",
   },
   {
     name: "Finn",
     position: [0.8, 0.06, 0.35],
     rotationY: -0.08,
-    bobOffset: 1.3,
     color: "#00e639",
   },
   {
     name: "Rae",
     position: [2.2, 0.06, 0.9],
     rotationY: -0.22,
-    bobOffset: 2,
     color: "#ff3300",
   },
 ];
@@ -106,29 +101,20 @@ function WavingCharacter({
   name,
   position,
   rotationY,
-  bobOffset,
-  isSelected,
-}: CharacterSpec & { readonly isSelected: boolean }) {
-  const bobRef = useRef<Group>(null);
-
-  useFrame((state) => {
-    if (!bobRef.current) {
-      return;
-    }
-
-    bobRef.current.position.y =
-      Math.sin((state.clock.getElapsedTime() + bobOffset) * 1.6) * 0.04;
-  });
-
+  shouldWave,
+  waveMode,
+}: CharacterSpec & {
+  readonly shouldWave: boolean;
+  readonly waveMode: "all" | "selected";
+}) {
   return (
     <group position={position} rotation={[0, rotationY, 0]}>
-      <group ref={bobRef}>
-        <Character
-          name={name}
-          animation={isSelected ? "Wave" : "Idle"}
-          targetHeight={CHARACTER_HEIGHT}
-        />
-      </group>
+      <Character
+        key={waveMode}
+        name={name}
+        animation={shouldWave ? "Wave" : "Idle"}
+        targetHeight={CHARACTER_HEIGHT}
+      />
     </group>
   );
 }
@@ -149,6 +135,7 @@ export function StartScreenCast() {
   const selectedChar = selectedName
     ? CHARACTERS.find((c) => c.name === selectedName)
     : null;
+  const waveMode = selectedName === null ? "all" : "selected";
 
   return (
     <>
@@ -156,7 +143,8 @@ export function StartScreenCast() {
         <WavingCharacter
           key={character.name}
           {...character}
-          isSelected={character.name === selectedName}
+          shouldWave={selectedName === null || character.name === selectedName}
+          waveMode={waveMode}
         />
       ))}
       {selectedChar ? (

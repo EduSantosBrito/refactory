@@ -1,5 +1,5 @@
-import type { AssetId } from "@refactory/contracts/worlds";
 import { useFrame, useThree } from "@react-three/fiber";
+import type { AssetId } from "@refactory/contracts/worlds";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { Group, Mesh, MeshBasicMaterial } from "three";
 import {
@@ -14,8 +14,13 @@ import {
 import { useAudioSettings } from "../audio-settings";
 import { getCharacterAssetMeta } from "../characterAssets";
 import { Character } from "../models/Character";
-import { WORLD_RADIUS } from "./constants";
+import {
+  type PortalParams,
+  redirectBackToRef,
+  redirectToPortal,
+} from "../portal";
 import { type SpatialHash, slideMovementSpatial } from "./collision";
+import { WORLD_RADIUS } from "./constants";
 import { surfaceHeightAt } from "./surface";
 import { isInWater } from "./water";
 
@@ -28,6 +33,10 @@ const CAMERA_HEIGHT_TRACK = 0.35;
 const ZOOM_MIN = 0.45;
 const ZOOM_MAX = 2.2;
 const ZOOM_STEP = 0.08;
+const CAMERA_ROTATION_SPEED = 1.6;
+const CAMERA_MOUSE_HOLD_DELAY_MS = 100;
+const CAMERA_MOUSE_ROTATION_SPEED = 0.006;
+const CAMERA_ROTATE_CURSOR_CLASS = "camera-rotate-mode";
 const ROTATION_SPEED = 12;
 const MARKER_DURATION = 0.55;
 const MARKER_COLOR_VALID = new Color(0x40d850);
@@ -87,19 +96,45 @@ function horizontalStepForSurfaceDistance(
   return Math.min(horizontalDistance, remainingDistance);
 }
 
+/* ── Portal constants ── */
+const PORTAL_TRIGGER_RADIUS = 1.5;
+const DEFAULT_BACK_PORTAL_XZ = [4, -4] as const;
+const DEFAULT_EXIT_PORTAL_XZ = [6, -8] as const;
+const backPortalPosition = new Vector3();
+const exitPortalPosition = new Vector3();
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
+}
+
 export function PlayerController({
   assetId,
+  backPortalXZ = DEFAULT_BACK_PORTAL_XZ,
   enabled = true,
+  exitPortalXZ = DEFAULT_EXIT_PORTAL_XZ,
+  hasBackPortal = false,
+  portalParams = null,
   playerPosRef,
   spatialHashRef,
+  isPortalEntry = false,
 }: {
   assetId: AssetId;
+  backPortalXZ?: readonly [number, number];
   enabled?: boolean;
+  exitPortalXZ?: readonly [number, number];
+  hasBackPortal?: boolean;
+  portalParams?: PortalParams | null;
   playerPosRef: { current: Vector3 };
   spatialHashRef: { readonly current: SpatialHash };
+  isPortalEntry?: boolean;
 }) {
   const { getChannelVolume } = useAudioSettings();
-  const { camera, gl } = useThree();
+  const { camera, events, gl } = useThree();
   const groupRef = useRef<Group>(null);
   const tiltGroupRef = useRef<Group>(null);
   const targetPos = useRef(new Vector3(0, 0, 0));
@@ -118,15 +153,40 @@ export function PlayerController({
   const animationSpeed = animation === "Run" ? RUN_ANIMATION_SPEED : 1;
   const walkLoopVolume = WALK_LOOP_VOLUME * getChannelVolume("soundEffects");
   const characterAsset = getCharacterAssetMeta(assetId);
+  const portalSessionRef = useRef<PortalParams | null>(portalParams);
+
+  useEffect(() => {
+    portalSessionRef.current = portalParams;
+  }, [portalParams]);
 
   /* ── Camera state ──────────────────────────────────────── */
   const zoom = useRef(1);
+  const cameraYaw = useRef(0);
+  const hasPointerMovedRef = useRef(false);
+  const isPointerInsideCanvasRef = useRef(false);
+  const cameraRotationKeys = useRef({ left: false, right: false });
+  const cameraMouseRotation = useRef<{
+    active: boolean;
+    clickResetTimeout: ReturnType<typeof setTimeout> | null;
+    holdTimeout: ReturnType<typeof setTimeout> | null;
+    lastX: number;
+    pointerId: number | null;
+    suppressNextClick: boolean;
+  }>({
+    active: false,
+    clickResetTimeout: null,
+    holdTimeout: null,
+    lastX: 0,
+    pointerId: null,
+    suppressNextClick: false,
+  });
   const cameraSmooth = useRef(new Vector3(0, 0, 0));
   const hasInitializedCameraRef = useRef(false);
 
   /* ── Click marker ──────────────────────────────────────── */
   const markerMeshRef = useRef<Mesh>(null);
   const markerMatRef = useRef<MeshBasicMaterial>(null);
+  const isRedirectingRef = useRef(false);
   const markerData = useRef({
     active: false,
     x: 0,
@@ -245,6 +305,319 @@ export function PlayerController({
     };
   }, [enabled, gl, handlePointerDown, handleWheel]);
 
+  useEffect(() => {
+    const resetCameraRotationKeys = () => {
+      cameraRotationKeys.current.left = false;
+      cameraRotationKeys.current.right = false;
+    };
+
+    if (!enabled) {
+      resetCameraRotationKeys();
+      return;
+    }
+
+    const setCameraRotationKey = (event: KeyboardEvent, isDown: boolean) => {
+      const isArrowLeft = event.key === "ArrowLeft";
+      const isArrowRight = event.key === "ArrowRight";
+      if (!isArrowLeft && !isArrowRight) {
+        return;
+      }
+
+      if (!isDown) {
+        if (isArrowLeft) {
+          cameraRotationKeys.current.left = false;
+        } else {
+          cameraRotationKeys.current.right = false;
+        }
+        event.preventDefault();
+        return;
+      }
+
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        isEditableTarget(event.target)
+      ) {
+        return;
+      }
+
+      if (isArrowLeft) {
+        cameraRotationKeys.current.left = isDown;
+        event.preventDefault();
+      } else {
+        cameraRotationKeys.current.right = isDown;
+        event.preventDefault();
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      setCameraRotationKey(event, true);
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      setCameraRotationKey(event, false);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", resetCameraRotationKeys);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", resetCameraRotationKeys);
+      resetCameraRotationKeys();
+    };
+  }, [enabled]);
+
+  useEffect(() => {
+    const canvas = gl.domElement;
+
+    const handlePointerMove = () => {
+      hasPointerMovedRef.current = true;
+    };
+
+    const handlePointerEnter = () => {
+      isPointerInsideCanvasRef.current = true;
+    };
+
+    const handlePointerLeave = () => {
+      isPointerInsideCanvasRef.current = false;
+      document.body.classList.remove("interactable-hover");
+      events.update?.();
+    };
+
+    const handleBlur = () => {
+      handlePointerLeave();
+    };
+
+    canvas.addEventListener("pointermove", handlePointerMove);
+    canvas.addEventListener("pointerenter", handlePointerEnter);
+    canvas.addEventListener("pointerleave", handlePointerLeave);
+    window.addEventListener("blur", handleBlur);
+
+    return () => {
+      canvas.removeEventListener("pointermove", handlePointerMove);
+      canvas.removeEventListener("pointerenter", handlePointerEnter);
+      canvas.removeEventListener("pointerleave", handlePointerLeave);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, [events, gl]);
+
+  useEffect(() => {
+    const canvas = gl.domElement;
+    const getCursorRoots = () => {
+      const appRoot = document.getElementById("app");
+      return [document.body, document.documentElement, appRoot].filter(
+        (element): element is HTMLElement => element instanceof HTMLElement,
+      );
+    };
+
+    const setCameraRotationCursor = (active: boolean) => {
+      if (active) {
+        document.body.classList.remove("interactable-hover");
+      }
+
+      for (const element of getCursorRoots()) {
+        element.classList.toggle(CAMERA_ROTATE_CURSOR_CLASS, active);
+      }
+    };
+
+    const clearHoldTimeout = () => {
+      const state = cameraMouseRotation.current;
+      if (state.holdTimeout) {
+        clearTimeout(state.holdTimeout);
+        state.holdTimeout = null;
+      }
+    };
+
+    const clearClickResetTimeout = () => {
+      const state = cameraMouseRotation.current;
+      if (state.clickResetTimeout) {
+        clearTimeout(state.clickResetTimeout);
+        state.clickResetTimeout = null;
+      }
+    };
+
+    const scheduleClickSuppressionReset = () => {
+      const state = cameraMouseRotation.current;
+      clearClickResetTimeout();
+      state.clickResetTimeout = setTimeout(() => {
+        state.suppressNextClick = false;
+        state.clickResetTimeout = null;
+      }, 0);
+    };
+
+    const resetMouseRotation = (suppressClick: boolean) => {
+      const state = cameraMouseRotation.current;
+      const active = state.active;
+      clearHoldTimeout();
+      state.active = false;
+      state.pointerId = null;
+      setCameraRotationCursor(false);
+
+      if (active || suppressClick) {
+        state.suppressNextClick = true;
+        scheduleClickSuppressionReset();
+      }
+    };
+
+    if (!enabled) {
+      resetMouseRotation(false);
+      return;
+    }
+
+    const stopPointerEvent = (event: PointerEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    };
+
+    const handleMouseRotationPointerDown = (event: PointerEvent) => {
+      if (
+        event.button !== 0 ||
+        !event.isPrimary ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      ) {
+        return;
+      }
+
+      const state = cameraMouseRotation.current;
+      resetMouseRotation(false);
+      clearClickResetTimeout();
+      state.suppressNextClick = false;
+      state.pointerId = event.pointerId;
+      state.lastX = event.clientX;
+      state.holdTimeout = setTimeout(() => {
+        if (state.pointerId !== event.pointerId) {
+          return;
+        }
+
+        state.active = true;
+        state.suppressNextClick = true;
+        setCameraRotationCursor(true);
+
+        try {
+          canvas.setPointerCapture(event.pointerId);
+        } catch {
+          // The pointer may already be released by the time the hold delay fires.
+        }
+      }, CAMERA_MOUSE_HOLD_DELAY_MS);
+    };
+
+    const handleMouseRotationPointerMove = (event: PointerEvent) => {
+      const state = cameraMouseRotation.current;
+      if (state.pointerId !== event.pointerId) {
+        return;
+      }
+
+      if ((event.buttons & 1) === 0) {
+        resetMouseRotation(false);
+        return;
+      }
+
+      if (!state.active) {
+        state.lastX = event.clientX;
+        return;
+      }
+
+      const deltaX = event.clientX - state.lastX;
+      state.lastX = event.clientX;
+      cameraYaw.current += deltaX * CAMERA_MOUSE_ROTATION_SPEED;
+      stopPointerEvent(event);
+    };
+
+    const handleMouseRotationPointerEnd = (event: PointerEvent) => {
+      const state = cameraMouseRotation.current;
+      if (state.pointerId !== event.pointerId) {
+        return;
+      }
+
+      const wasActive = state.active;
+      resetMouseRotation(wasActive);
+
+      try {
+        canvas.releasePointerCapture(event.pointerId);
+      } catch {
+        // The pointer may not have been captured if release happened pre-delay.
+      }
+
+      if (wasActive) {
+        stopPointerEvent(event);
+      }
+    };
+
+    const handleMouseRotationClick = (event: MouseEvent) => {
+      const state = cameraMouseRotation.current;
+      if (!state.suppressNextClick) {
+        return;
+      }
+
+      state.suppressNextClick = false;
+      clearClickResetTimeout();
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    };
+
+    const handleBlur = () => {
+      resetMouseRotation(false);
+    };
+
+    canvas.addEventListener("pointerdown", handleMouseRotationPointerDown);
+    canvas.addEventListener(
+      "pointermove",
+      handleMouseRotationPointerMove,
+      true,
+    );
+    canvas.addEventListener("pointerup", handleMouseRotationPointerEnd, true);
+    canvas.addEventListener(
+      "pointercancel",
+      handleMouseRotationPointerEnd,
+      true,
+    );
+    canvas.addEventListener("click", handleMouseRotationClick, true);
+    window.addEventListener("pointermove", handleMouseRotationPointerMove, {
+      passive: false,
+    });
+    window.addEventListener("pointerup", handleMouseRotationPointerEnd);
+    window.addEventListener("pointercancel", handleMouseRotationPointerEnd);
+    window.addEventListener("blur", handleBlur);
+
+    return () => {
+      canvas.removeEventListener("pointerdown", handleMouseRotationPointerDown);
+      canvas.removeEventListener(
+        "pointermove",
+        handleMouseRotationPointerMove,
+        true,
+      );
+      canvas.removeEventListener(
+        "pointerup",
+        handleMouseRotationPointerEnd,
+        true,
+      );
+      canvas.removeEventListener(
+        "pointercancel",
+        handleMouseRotationPointerEnd,
+        true,
+      );
+      canvas.removeEventListener("click", handleMouseRotationClick, true);
+      window.removeEventListener("pointermove", handleMouseRotationPointerMove);
+      window.removeEventListener("pointerup", handleMouseRotationPointerEnd);
+      window.removeEventListener(
+        "pointercancel",
+        handleMouseRotationPointerEnd,
+      );
+      window.removeEventListener("blur", handleBlur);
+      resetMouseRotation(false);
+      clearClickResetTimeout();
+    };
+  }, [enabled, gl]);
+
   /* ── Per-frame update ──────────────────────────────────── */
   useFrame((_, delta) => {
     const group = groupRef.current;
@@ -321,6 +694,38 @@ export function PlayerController({
     pPos.y = surfaceHeightAt(pPos.x, pPos.z);
     group.position.copy(pPos);
 
+    // Portal proximity check - trigger exit portal redirect
+    if (isPortalEntry && !isRedirectingRef.current) {
+      const portalSession = portalSessionRef.current;
+
+      if (hasBackPortal) {
+        backPortalPosition.set(
+          backPortalXZ[0],
+          surfaceHeightAt(backPortalXZ[0], backPortalXZ[1]),
+          backPortalXZ[1],
+        );
+        const distToBackPortal = pPos.distanceTo(backPortalPosition);
+        if (distToBackPortal < PORTAL_TRIGGER_RADIUS) {
+          isRedirectingRef.current = redirectBackToRef(portalSession);
+          if (isRedirectingRef.current) {
+            return; // Stop processing after redirect
+          }
+        }
+      }
+
+      exitPortalPosition.set(
+        exitPortalXZ[0],
+        surfaceHeightAt(exitPortalXZ[0], exitPortalXZ[1]),
+        exitPortalXZ[1],
+      );
+      const distToExitPortal = pPos.distanceTo(exitPortalPosition);
+      if (distToExitPortal < PORTAL_TRIGGER_RADIUS) {
+        isRedirectingRef.current = true;
+        redirectToPortal(portalSession);
+        return; // Stop processing after redirect
+      }
+    }
+
     const movedDistance = Math.hypot(
       pPos.x - prevX,
       pPos.y - prevY,
@@ -380,6 +785,15 @@ export function PlayerController({
     const z = zoom.current;
     const camH = CAMERA_BASE_HEIGHT * z;
     const camD = CAMERA_BASE_DISTANCE * z;
+    const cameraRotationDirection =
+      Number(cameraRotationKeys.current.right) -
+      Number(cameraRotationKeys.current.left);
+    if (enabled && cameraRotationDirection !== 0) {
+      cameraYaw.current +=
+        cameraRotationDirection * CAMERA_ROTATION_SPEED * delta;
+    }
+    const cameraOffsetX = Math.sin(cameraYaw.current) * camD;
+    const cameraOffsetZ = Math.cos(cameraYaw.current) * camD;
 
     const lookX = pPos.x;
     const lookZ = pPos.z;
@@ -407,15 +821,18 @@ export function PlayerController({
     }
 
     camera.position.set(
-      cameraSmooth.current.x,
+      cameraSmooth.current.x + cameraOffsetX,
       cameraSmooth.current.y + camH,
-      cameraSmooth.current.z + camD,
+      cameraSmooth.current.z + cameraOffsetZ,
     );
     camera.lookAt(
       cameraSmooth.current.x,
       cameraSmooth.current.y,
       cameraSmooth.current.z,
     );
+    if (hasPointerMovedRef.current && isPointerInsideCanvasRef.current) {
+      events.update?.();
+    }
 
     /* ── Click marker animation ────────────────────────────── */
     const md = markerData.current;

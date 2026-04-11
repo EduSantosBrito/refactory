@@ -58,6 +58,9 @@ export type BeltContentState = "empty" | "filled";
 
 export type BeltSegmentType = "straight" | "curve";
 
+/** Curve turn direction: left = CCW, right = CW when viewed from above */
+export type CurveTurn = "left" | "right";
+
 /** Which end(s) get a termination bracket */
 export type BeltEndCap = "start" | "end" | "both";
 
@@ -69,6 +72,10 @@ export interface BeltSegmentProps extends ModelProps {
   speed?: number;
   /** Render terminus bracket at start, end, or both ends */
   endCap?: BeltEndCap;
+  /** Curve turn direction (only applies to BeltCurve) */
+  turn?: CurveTurn;
+  /** Reverse the groove scroll direction to match flow */
+  reverseScroll?: boolean;
 }
 
 /* ── Chain types ──────────────────────────────────────────── */
@@ -85,6 +92,13 @@ export interface ChainSegment {
   rotationY: number;
   /** Travel distance along this segment's path */
   pathLength: number;
+  /** Curve turn direction (only used when type="curve") */
+  turn?: CurveTurn;
+  /**
+   * Reverse the groove scroll direction.
+   * Use when the belt's world-space flow direction is opposite to its local +X direction.
+   */
+  reverseScroll?: boolean;
 }
 
 /** An item traveling on a belt chain */

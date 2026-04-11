@@ -18,6 +18,18 @@ const parsePort = (value: string | undefined, fallback: number) => {
   );
 };
 
+const parseBoolean = (value: string | undefined, fallback: boolean) =>
+  Option.fromUndefinedOr(value).pipe(
+    Option.map((candidate) => candidate.trim().toLowerCase()),
+    Option.map((candidate) =>
+      candidate === "1" ||
+      candidate === "true" ||
+      candidate === "yes" ||
+      candidate === "on",
+    ),
+    Option.getOrElse(() => fallback),
+  );
+
 const defaultDatabasePath = new URL("../refactory.sqlite", import.meta.url)
   .pathname;
 
@@ -38,6 +50,23 @@ const appConfigConfig = Config.all({
     ),
   ),
   rulesetVersion: Config.succeed("gpy7-v1"),
+  telemetryEnabled: Config.option(
+    Config.schema(Schema.String, "API_TELEMETRY_ENABLED"),
+  ).pipe(
+    Config.map((enabled) => parseBoolean(Option.getOrUndefined(enabled), false)),
+  ),
+  telemetryOtlpBaseUrl: Config.schema(
+    Schema.String,
+    "API_TELEMETRY_OTLP_BASE_URL",
+  ).pipe(Config.withDefault("http://localhost:4318")),
+  telemetryServiceName: Config.schema(
+    Schema.String,
+    "API_TELEMETRY_SERVICE_NAME",
+  ).pipe(Config.withDefault("refactory-api")),
+  telemetryServiceVersion: Config.schema(
+    Schema.String,
+    "API_TELEMETRY_SERVICE_VERSION",
+  ).pipe(Config.withDefault("dev")),
   worldSchemaVersion: Config.succeed(1),
 });
 
@@ -48,6 +77,10 @@ export class AppConfig extends ServiceMap.Service<
     readonly databasePath: string;
     readonly port: number;
     readonly rulesetVersion: string;
+    readonly telemetryEnabled: boolean;
+    readonly telemetryOtlpBaseUrl: string;
+    readonly telemetryServiceName: string;
+    readonly telemetryServiceVersion: string;
     readonly worldSchemaVersion: number;
   }
 >()("refactory/AppConfig") {

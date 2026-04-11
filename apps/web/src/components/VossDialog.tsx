@@ -88,6 +88,15 @@ export function VossDialog({ lines, onComplete }: VossDialogProps) {
   const shouldPlayVoice =
     isVoiceReady && isRevealing && !isDone && fullText.length > 0;
 
+  const resumeVoiceContext = useCallback(() => {
+    const context = voiceContextRef.current;
+    if (!context || context.state === "closed") {
+      return;
+    }
+
+    void context.resume().catch(() => undefined);
+  }, []);
+
   // Typewriter tick
   useEffect(() => {
     if (!isRevealing || isDone) return;
@@ -218,7 +227,7 @@ export function VossDialog({ lines, onComplete }: VossDialogProps) {
     };
     voiceSourceRef.current = source;
 
-    void context.resume().catch(() => undefined);
+    resumeVoiceContext();
     return () => {
       if (voiceSourceRef.current !== source) {
         return;
@@ -227,7 +236,7 @@ export function VossDialog({ lines, onComplete }: VossDialogProps) {
       stopVoiceSource(source);
       voiceSourceRef.current = null;
     };
-  }, [isFast, lineIndex, shouldPlayVoice]);
+  }, [isFast, lineIndex, resumeVoiceContext, shouldPlayVoice]);
 
   const advance = useCallback(() => {
     if (!isDone) {
@@ -256,18 +265,20 @@ export function VossDialog({ lines, onComplete }: VossDialogProps) {
         return;
       }
 
+      resumeVoiceContext();
       event.preventDefault();
     },
-    [],
+    [resumeVoiceContext],
   );
 
   const handleDialogClick = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
+      resumeVoiceContext();
       event.preventDefault();
       event.stopPropagation();
       advance();
     },
-    [advance],
+    [advance, resumeVoiceContext],
   );
 
   // Keyboard: Space/Enter to advance, hold to speed up
@@ -284,6 +295,7 @@ export function VossDialog({ lines, onComplete }: VossDialogProps) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
       if (e.key === " " || e.key === "Enter") {
+        resumeVoiceContext();
         e.preventDefault();
         if (!isDone && isRevealing) {
           setIsFast(true);
@@ -305,7 +317,7 @@ export function VossDialog({ lines, onComplete }: VossDialogProps) {
       window.removeEventListener("keydown", handleDown);
       window.removeEventListener("keyup", handleUp);
     };
-  }, [advance, isDone, isRevealing]);
+  }, [advance, isDone, isRevealing, resumeVoiceContext]);
 
   if (!currentLine) return null;
 

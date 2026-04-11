@@ -1,0 +1,22 @@
+<svg width="256" height="256" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="metal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4a5568"/>
+      <stop offset="100%" stop-color="#2d3748"/>
+    </linearGradient>
+    <linearGradient id="handle" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8b6b4a"/>
+      <stop offset="100%" stop-color="#6b4e35"/>
+    </linearGradient>
+  </defs>
+  <g>
+    <!-- Pick head right -->
+    <path fill="url(#metal)" d="M14.15 7.05 Q19.3 3.15 23.8 3 L24.35 3.15 24.7 3.6 24.8 4.2 24.5 4.7 18.15 11.05 14.15 7.05"/>
+    <!-- Center hub -->
+    <path fill="#2d3550" d="M14.15 7.05 L18.15 11.05 Q19.55 12.45 18.1 13.9 L17.4 14.6 14.65 17.45 13.9 18.15 Q12.45 19.55 11.05 18.15 L7.05 14.15 6.8 13.9 Q5.4 12.5 6.85 11.1 L11.05 6.85 13.9 6.8 14.15 7.05 M21.65 18.85 L24.4 18.8 24.55 18.9 25.95 20.3 Q27.35 21.7 25.9 23.1 L23.1 25.9 20.25 25.95 18.7 24.45 Q17.5 23 18.85 21.65 L21.65 18.85"/>
+    <!-- Pick head left / handle -->
+    <path fill="url(#handle)" d="M11.05 18.15 L4.7 24.5 4.2 24.85 3.6 24.75 3.15 24.35 3 23.8 Q3.15 19.3 7.05 14.15 L11.05 18.15"/>
+    <!-- Connecting parts -->
+    <path fill="url(#metal)" d="M17.4 14.6 L21.65 18.85 18.85 21.65 14.65 17.45 17.4 14.6 M25.9 23.1 L28.75 25.95 25.95 28.75 23.1 25.9 25.9 23.1"/>
+  </g>
+</svg>

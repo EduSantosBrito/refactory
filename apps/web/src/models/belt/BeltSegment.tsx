@@ -1,6 +1,5 @@
-import { useFrame } from "@react-three/fiber";
+import type { Mesh } from "three";
 import { useRef } from "react";
-import { FrontSide, type ShaderMaterial, Vector3 } from "three";
 import {
   ACCENT_Y,
   BASE_H,
@@ -18,12 +17,7 @@ import {
   SURFACE_HALF_W,
   SURFACE_W,
 } from "./constants";
-import {
-  GROOVE_RUNNING,
-  GROOVE_STOPPED,
-  grooveFrag,
-  grooveVert,
-} from "./shaders";
+import { useGrooveMaterial } from "./useGrooveMaterial";
 import type { BeltPort, BeltSegmentProps } from "./types";
 
 const H = BELT_TILE.height;
@@ -47,6 +41,8 @@ export const STRAIGHT_PORTS: BeltPort[] = [
  * Items travel along +X (west → east in local space).
  * Aesthetic: flat dark belt surface with scrolling groove lines,
  * orange accent rails, beveled base.
+ *
+ * Automatically uses TSL shaders when WebGPU is active.
  */
 export function BeltSegment({
   power = "running",
@@ -54,35 +50,20 @@ export function BeltSegment({
   ratePerMinute = DEFAULT_BELT_RATE_PER_MINUTE,
   speed,
   endCap,
+  reverseScroll = false,
   ...props
 }: BeltSegmentProps) {
-  const overlayRef = useRef<ShaderMaterial>(null);
+  const overlayRef = useRef<Mesh>(null);
   const beltSpeed = resolveBeltSpeed({ ratePerMinute, speed }) ?? BELT_SPEED;
-
   const running = power === "running";
-  const groove = running ? GROOVE_RUNNING : GROOVE_STOPPED;
   const repeat = LENGTH * GROOVE_DENSITY;
 
-  useFrame((_, delta) => {
-    const mat = overlayRef.current;
-    if (!mat) return;
-
-    const u = mat.uniforms as {
-      uTime: { value: number };
-      uRepeat: { value: number };
-      uOpacity: { value: number };
-      uColor: { value: Vector3 };
-    };
-
-    if (running) {
-      u.uTime.value += delta * beltSpeed;
-    }
-
-    u.uOpacity.value += (groove.opacity - u.uOpacity.value) * 0.1;
-    u.uColor.value.lerp(
-      _lerpTarget.set(groove.color[0], groove.color[1], groove.color[2]),
-      0.1,
-    );
+  // Dual-mode groove material (GLSL for WebGL, TSL for WebGPU)
+  const { material } = useGrooveMaterial({
+    repeat,
+    running,
+    speed: beltSpeed,
+    reverseScroll,
   });
 
   return (
@@ -135,25 +116,13 @@ export function BeltSegment({
       ))}
 
       {/* ── Groove overlay — scrolling motion lines ─────── */}
-      <mesh position={[0, H + 0.003, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh
+        ref={overlayRef}
+        position={[0, H + 0.003, 0]}
+        rotation={[-Math.PI / 2, 0, 0]}
+        material={material}
+      >
         <planeGeometry args={[EXT, SURFACE_W]} />
-        <shaderMaterial
-          ref={overlayRef}
-          transparent
-          depthWrite={false}
-          side={FrontSide}
-          polygonOffset
-          polygonOffsetFactor={-4}
-          polygonOffsetUnits={-4}
-          vertexShader={grooveVert}
-          fragmentShader={grooveFrag}
-          uniforms={{
-            uTime: { value: 0 },
-            uRepeat: { value: repeat },
-            uOpacity: { value: groove.opacity },
-            uColor: { value: new Vector3(...groove.color) },
-          }}
-        />
       </mesh>
 
       {/* ── End-cap brackets — terminus where belt meets building ── */}
@@ -172,6 +141,3 @@ export function BeltSegment({
     </group>
   );
 }
-
-/** Reusable vector for lerp target (avoids allocation per frame) */
-const _lerpTarget = new Vector3();

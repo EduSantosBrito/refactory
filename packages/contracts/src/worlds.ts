@@ -62,10 +62,16 @@ const StarterBoxState = Schema.Struct({
   state: Schema.Literal("placed"),
 });
 
+export const WorldPortal = Schema.Struct({
+  queryParams: Schema.Record(Schema.String, Schema.String),
+});
+export type WorldPortal = Schema.Schema.Type<typeof WorldPortal>;
+
 export const WorldSpec = Schema.Struct({
   hostAssetId: AssetId,
   mapId: Schema.Literal("GPY-7"),
   mode: WorldMode,
+  portal: Schema.optional(WorldPortal),
   rulesetVersion: Schema.String,
   visibility: WorldVisibility,
   worldSchemaVersion: Schema.Number,
@@ -142,6 +148,7 @@ export const CreateWorldRequest = Schema.Struct({
   hostAssetId: AssetId,
   idempotencyKey: Schema.String,
   mode: WorldMode,
+  portal: Schema.optional(WorldPortal),
   visibility: Schema.optional(WorldVisibility),
   worldName: Schema.String,
 });
@@ -157,6 +164,7 @@ export const WorldListQuery = Schema.Struct({
 export type WorldListQuery = Schema.Schema.Type<typeof WorldListQuery>;
 
 export const CreateWorldResponse = Schema.Struct({ world: WorldDetail });
+export const DeleteWorldResponse = Schema.Struct({ worldId: Schema.String });
 export const GetWorldResponse = Schema.Struct({ world: WorldDetail });
 export const ListWorldsResponse = Schema.Struct({
   nextCursor: Schema.optional(Schema.String),

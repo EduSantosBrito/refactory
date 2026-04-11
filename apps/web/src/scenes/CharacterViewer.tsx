@@ -17,6 +17,7 @@ import {
   Rocket,
   Splitter,
   WindTurbine,
+  WIPSign,
 } from "../models";
 import { CURVE_ARC_LENGTH, getBeltLoopItemCount } from "../models/belt";
 import {
@@ -30,6 +31,7 @@ import {
   HeatSinkArray,
   IndustrialSmelter,
   OreSmelter,
+  Portal,
   PowerUnit,
   ProcessorUnit,
   SideLamp,
@@ -361,229 +363,81 @@ function FactoryProcessedCargo() {
  */
 
 /* ── Belt chain definitions ── */
-
-/* Miner A(-5) → Merger(0): 4 straight tiles going east */
-const FC_MINER_A: ChainSegment[] = [
-  { key: "ma-0", type: "straight", position: [-4, 0, 0], rotationY: 0, pathLength: 1 },
-  { key: "ma-1", type: "straight", position: [-3, 0, 0], rotationY: 0, pathLength: 1 },
-  { key: "ma-2", type: "straight", position: [-2, 0, 0], rotationY: 0, pathLength: 1 },
-  { key: "ma-3", type: "straight", position: [-1, 0, 0], rotationY: 0, pathLength: 1 },
-];
-const FC_MINER_A_ITEMS: ChainItem[] = [
-  { id: "ma-0", progress: 0.1, node: <FactoryOreCargo />, heightOffset: 0.08 },
-  { id: "ma-1", progress: 0.35, node: <FactoryOreCargo />, heightOffset: 0.08 },
-  { id: "ma-2", progress: 0.6, node: <FactoryOreCargo />, heightOffset: 0.08 },
-  { id: "ma-3", progress: 0.85, node: <FactoryOreCargo />, heightOffset: 0.08 },
-];
-
 /*
- * Miner B → Merger: straight south, then curve east, then straight east.
+ * INVERTED U LAYOUT — entire factory flows as one U path:
  *
- * Miner B at (0, -3), output faces south (+Z) after rotation.
- * Belt goes south to (-1, -2), curves east-south at (0, -2)...
+ *                    Smelter ─── Splitter ─── Processor
+ *                       ↑                        ↓
+ *        [left leg]     │                        │    [right leg]
+ *                       │                        │
+ *                    Miner                    Storage
+ *                 (bottom left)            (bottom right)
  *
- * Actually simpler: Miner B at (-1, -3) facing east (no rotation).
- * Belt goes east: (-1,-2) straight south...
- *
- * Let me use: Miner B at (0, -3), rotated -π/2 so output faces south.
- * Straight belt at (0, -2) going south (rotationY = -π/2).
- * Curve at (0, -1): needs to go from south→east.
- *   Default curve goes west→north (rotationY=0).
- *   To go south→east: input from south (-Z→+Z) = belt arriving from -Z.
- *   Rotate curve by π (180°): west→north becomes east→south... no.
- *
- *   Let me think: curve with rotationY = -π/2:
- *     west(-X) rotates to south(+Z), north(-Z) rotates to west(-X)
- *     So input is from south, output goes west. Wrong direction.
- *
- *   rotationY = π: west(-X) → east(+X), north(-Z) → south(+Z)
- *     Input from east, output goes south. Wrong.
- *
- *   rotationY = π/2: west(-X) → north(-Z), north(-Z) → east(+X)
- *     Input from north, output goes east. Nope...
- *
- *   I need: input from south (belt arrives going south = +Z direction),
- *   output toward east (+X). That means input faces south, output faces east.
- *
- *   Default curve: input faces west, output faces north.
- *   Need to rotate so: west→south, north→east.
- *   That's rotationY = -π/2 (CW 90°):
- *     west(-X) → south(+Z) ✓, north(-Z) → east... wait:
- *     CW 90° from top: +X→+Z, -X→-Z, +Z→-X, -Z→+X
- *     So west(-X) → -Z (north). Wrong.
- *
- *   Let me be more careful. Y rotation matrix (positive = CCW from top):
- *   rotY = θ:
- *     new_X =  cos(θ)·X + sin(θ)·Z
- *     new_Z = -sin(θ)·X + cos(θ)·Z
- *
- *   For rotY = -π/2 (CW 90°): cos=-0, sin=-1
- *     new_X = 0·X + (-1)·Z = -Z
- *     new_Z = -(-1)·X + 0·Z = X
- *   So: X→Z, Z→-X, -X→-Z, -Z→X
- *   west(-X) → -Z (north). north(-Z) → +X (east).
- *   Input from north, output east. I need input from SOUTH.
- *
- *   For rotY = π/2 (CCW 90°): cos=0, sin=1
- *     new_X = 0·X + 1·Z = Z
- *     new_Z = -1·X + 0·Z = -X
- *   So: X→-X... wait: X→Z, Z→-X... no:
- *   new_X = Z, new_Z = -X
- *   So: (1,0)→(0,-1), (0,1)→(1,0), (-1,0)→(0,1), (0,-1)→(-1,0)
- *   west(-X) → south(+Z)! north(-Z) → west(-X).
- *   Input from south, output goes west. Almost! Need output east.
- *
- *   For rotY = π: cos=-1, sin=0
- *     X→-X, Z→-Z
- *   west(-X) → east(+X). north(-Z) → south(+Z).
- *   Input from east, output south. Nope.
- *
- *   For rotY = 0: west input, north output. (default)
- *
- *   Hmm. None of these give south→east. The curve only does
- *   adjacent-face turns (90° between west and north). For south→east
- *   I need to go around the other way.
- *
- * Simplest alternative: just use straight belts for MinerB.
- * MinerB at (0, -2), output faces south. 1 straight belt going south.
+ * Flow: Miner → UP left leg → across top → DOWN right leg → Storage
  */
 
-/* Miner B(0,-3) → Merger(0,0): 2 straight tiles going south */
-const FC_MINER_B: ChainSegment[] = [
-  { key: "mb-0", type: "straight", position: [0, 0, -2], rotationY: -Math.PI / 2, pathLength: 1 },
-  { key: "mb-1", type: "straight", position: [0, 0, -1], rotationY: -Math.PI / 2, pathLength: 1 },
-];
-const FC_MINER_B_ITEMS: ChainItem[] = [
-  { id: "mb-0", progress: 0.2, node: <FactoryOreCargo />, heightOffset: 0.08 },
-  { id: "mb-1", progress: 0.7, node: <FactoryOreCargo />, heightOffset: 0.08 },
-];
-
-/* Merger(0) → Smelter(5): 4 straight tiles going east */
-const FC_MERGE_SMELT: ChainSegment[] = [
-  { key: "ms-0", type: "straight", position: [1, 0, 0], rotationY: 0, pathLength: 1 },
-  { key: "ms-1", type: "straight", position: [2, 0, 0], rotationY: 0, pathLength: 1 },
-  { key: "ms-2", type: "straight", position: [3, 0, 0], rotationY: 0, pathLength: 1 },
-  { key: "ms-3", type: "straight", position: [4, 0, 0], rotationY: 0, pathLength: 1 },
-];
-const FC_MERGE_SMELT_ITEMS: ChainItem[] = [
-  { id: "ms-0", progress: 0.15, node: <FactoryOreCargo />, heightOffset: 0.08 },
-  { id: "ms-1", progress: 0.55, node: <FactoryOreCargo />, heightOffset: 0.08 },
-  { id: "ms-2", progress: 0.9, node: <FactoryOreCargo />, heightOffset: 0.08 },
-];
-
-/* Smelter(5) → Splitter(10): 4 straight tiles going east */
-const FC_SMELT_SPLIT: ChainSegment[] = [
-  { key: "ss-0", type: "straight", position: [6, 0, 0], rotationY: 0, pathLength: 1 },
-  { key: "ss-1", type: "straight", position: [7, 0, 0], rotationY: 0, pathLength: 1 },
-  { key: "ss-2", type: "straight", position: [8, 0, 0], rotationY: 0, pathLength: 1 },
-  { key: "ss-3", type: "straight", position: [9, 0, 0], rotationY: 0, pathLength: 1 },
-];
-const FC_SMELT_SPLIT_ITEMS: ChainItem[] = [
-  { id: "ss-0", progress: 0.1, node: <FactoryIngotCargo />, heightOffset: 0.08 },
-  { id: "ss-1", progress: 0.5, node: <FactoryIngotCargo />, heightOffset: 0.08 },
-  { id: "ss-2", progress: 0.9, node: <FactoryIngotCargo />, heightOffset: 0.08 },
-];
-
-/* Splitter(10) east → Processor A(15): 4 straight tiles */
-const FC_SPLIT_PROC_A: ChainSegment[] = [
-  { key: "spa-0", type: "straight", position: [11, 0, 0], rotationY: 0, pathLength: 1 },
-  { key: "spa-1", type: "straight", position: [12, 0, 0], rotationY: 0, pathLength: 1 },
-  { key: "spa-2", type: "straight", position: [13, 0, 0], rotationY: 0, pathLength: 1 },
-  { key: "spa-3", type: "straight", position: [14, 0, 0], rotationY: 0, pathLength: 1 },
-];
-const FC_SPLIT_PROC_A_ITEMS: ChainItem[] = [
-  { id: "spa-0", progress: 0.1, node: <FactoryIngotCargo />, heightOffset: 0.08 },
-  { id: "spa-1", progress: 0.4, node: <FactoryIngotCargo />, heightOffset: 0.08 },
-  { id: "spa-2", progress: 0.7, node: <FactoryIngotCargo />, heightOffset: 0.08 },
-  { id: "spa-3", progress: 0.95, node: <FactoryIngotCargo />, heightOffset: 0.08 },
-];
-
 /*
- * Splitter south → curve east → Processor B:
- * Straight south at (8, 1), curve at (8, 2) turning east, straight east at (9, 2).
+ * FULL INVERTED U — one continuous belt chain with curves at corners:
  *
- * Curve from south to east = input from north(-Z arriving +Z), output east(+X).
- * Default curve: input west(-X), output north(-Z).
- * rotationY = -π/2: west(-X) maps to +Z(south), north(-Z) maps to +X(east)... wait:
- *   CW 90° (rotY=-π/2): X→Z, Z→-X, so -X→-Z and -Z→X
- *   west(-X)→-Z=north. Nope.
+ * Miner(0,8) → UP left leg → CURVE at top-left → across top bar →
+ * CURVE at top-right → DOWN right leg → Storage(10,8)
  *
- * Actually for this curve I need the belt to come from the north (going south)
- * and exit east. The default curve arcs from west face to north face.
- * To make it arc from north face to east face, I need rotY = -π/2:
- *   Let me recheck: the curve pivot is at (-0.5, 0, -0.5) in local space.
- *   Input at west (-0.5, y, 0), output at north (0, y, -0.5).
- *
- *   With rotY = -π/2:
- *   Input local (-0.5, y, 0) → world: new_X = -Z = 0, new_Z = X = -0.5
- *   So input at (0+cx, y, -0.5+cz). That's on the north face of the tile.
- *
- *   Output local (0, y, -0.5) → world: new_X = -(-0.5) = 0.5, new_Z = 0
- *   So output at (0.5+cx, y, 0+cz). That's on the east face. ✓
- *
- * So curve at (8, 2) with rotY = -π/2: input from north, output east. Perfect.
- * Place it at (8, 2) so north input connects to belt at (8, 1) going south,
- * and east output connects to belt at (9, 2) going east.
+ * Both corners are RIGHT turns (clockwise when viewed from above).
  */
-const FC_SPLIT_PROC_B: ChainSegment[] = [
-  // Straight going south from splitter(10) at z=1
-  { key: "spb-0", type: "straight", position: [10, 0, 1], rotationY: -Math.PI / 2, pathLength: 1 },
-  // Straight going south at z=2
-  { key: "spb-1", type: "straight", position: [10, 0, 2], rotationY: -Math.PI / 2, pathLength: 1 },
-  // Curve: input from north, output east at (10, 3)
-  { key: "spb-2", type: "curve", position: [10, 0, 3], rotationY: -Math.PI / 2, pathLength: CURVE_ARC_LENGTH },
-  // Straight going east at (11, 3)
-  { key: "spb-3", type: "straight", position: [11, 0, 3], rotationY: 0, pathLength: 1 },
-];
-const FC_SPLIT_PROC_B_ITEMS: ChainItem[] = [
-  { id: "spb-0", progress: 0.1, node: <FactoryIngotCargo />, heightOffset: 0.08 },
-  { id: "spb-1", progress: 0.4, node: <FactoryIngotCargo />, heightOffset: 0.08 },
-  { id: "spb-2", progress: 0.7, node: <FactoryIngotCargo />, heightOffset: 0.08 },
-  { id: "spb-3", progress: 0.95, node: <FactoryIngotCargo />, heightOffset: 0.08 },
+const FC_INVERTED_U: ChainSegment[] = [
+  // LEFT LEG - going north (up) from Miner at (0, 8)
+  // rotationY = π/2 means: input at south (z+0.5), output at north (z-0.5)
+  { key: "u-0", type: "straight", position: [0, 0, 7], rotationY: Math.PI / 2, pathLength: 1 },
+  { key: "u-1", type: "straight", position: [0, 0, 6], rotationY: Math.PI / 2, pathLength: 1 },
+  { key: "u-2", type: "straight", position: [0, 0, 5], rotationY: Math.PI / 2, pathLength: 1 },
+  { key: "u-3", type: "straight", position: [0, 0, 4], rotationY: Math.PI / 2, pathLength: 1 },
+  { key: "u-4", type: "straight", position: [0, 0, 3], rotationY: Math.PI / 2, pathLength: 1 },
+  { key: "u-5", type: "straight", position: [0, 0, 2], rotationY: Math.PI / 2, pathLength: 1 },
+  { key: "u-6", type: "straight", position: [0, 0, 1], rotationY: Math.PI / 2, pathLength: 1 },
+
+  // TOP-LEFT CURVE - input from south (left leg), output to east (top bar)
+  // turn=right with rotationY=π/2: south→east
+  { key: "u-7", type: "curve", position: [0, 0, 0], rotationY: Math.PI / 2, pathLength: CURVE_ARC_LENGTH, turn: "right" },
+
+  // TOP BAR - going east across the top
+  { key: "u-8", type: "straight", position: [1, 0, 0], rotationY: 0, pathLength: 1 },
+  { key: "u-9", type: "straight", position: [2, 0, 0], rotationY: 0, pathLength: 1 },
+  // Smelter at x=3
+  { key: "u-10", type: "straight", position: [4, 0, 0], rotationY: 0, pathLength: 1 },
+  { key: "u-11", type: "straight", position: [5, 0, 0], rotationY: 0, pathLength: 1 },
+  // Continue across to curve (Processor at x=6)
+  { key: "u-12", type: "straight", position: [7, 0, 0], rotationY: 0, pathLength: 1 },
+  { key: "u-13", type: "straight", position: [8, 0, 0], rotationY: 0, pathLength: 1 },
+  { key: "u-14", type: "straight", position: [9, 0, 0], rotationY: 0, pathLength: 1 },
+
+  // TOP-RIGHT CURVE - input from west, output south (right turn)
+  // turn=right with rotationY=0: west→south
+  { key: "u-15", type: "curve", position: [10, 0, 0], rotationY: 0, pathLength: CURVE_ARC_LENGTH, turn: "right" },
+
+  // RIGHT LEG - going south (down) to Storage at (10, 8)
+  // rotationY = -π/2 means: input at north (z-0.5), output at south (z+0.5)
+  { key: "u-16", type: "straight", position: [10, 0, 1], rotationY: -Math.PI / 2, pathLength: 1 },
+  { key: "u-17", type: "straight", position: [10, 0, 2], rotationY: -Math.PI / 2, pathLength: 1 },
+  { key: "u-18", type: "straight", position: [10, 0, 3], rotationY: -Math.PI / 2, pathLength: 1 },
+  { key: "u-19", type: "straight", position: [10, 0, 4], rotationY: -Math.PI / 2, pathLength: 1 },
+  { key: "u-20", type: "straight", position: [10, 0, 5], rotationY: -Math.PI / 2, pathLength: 1 },
+  { key: "u-21", type: "straight", position: [10, 0, 6], rotationY: -Math.PI / 2, pathLength: 1 },
+  { key: "u-22", type: "straight", position: [10, 0, 7], rotationY: -Math.PI / 2, pathLength: 1 },
 ];
 
-/*
- * Processor A → curve south → belt → ModularStorage:
- * Straight east at (13, 0), curve east→south at (14, 0),
- * straight south at (14, 1), straight south at (14, 2).
- *
- * Curve from east to south: input from west(-X), output south(+Z).
- * Default curve: input west, output north.
- * rotY = π/2 (CCW 90°):
- *   -X → +Z(south). ✓  input from south... wait:
- *   Let me recompute:
- *   rotY = π/2: X→-Z, Z→X, -X→Z, -Z→-X
- *   Input local (-0.5,y,0) → (0, y, -0.5). That's the north face.
- *   Hmm that's input from north.
- *
- * Let me try rotY = 0 (default): input west, output north.
- *   Input from west at (-0.5, y, 0), output north at (0, y, -0.5).
- *   I need input from west (belt coming from Processor A going east),
- *   and output going south.
- *
- * I want west→south. Default is west→north.
- * rotY = π: west(-X)→east(+X), north(-Z)→south(+Z)
- *   Input from east, output south. Input wrong.
- *
- * Hmm, none of the 4 rotations give west→south directly because
- * the curve only turns one way (CCW when viewed from above).
- *
- * For west→south I'd need a CW turn. The BeltCurve geometry only
- * does one 90° arc direction. Let's just use all straight belts
- * for this run and save curves for the splitter branch.
- */
-
-/* Processor A(15) → ModularStorage(20): 4 straight tiles east */
-const FC_PROC_A_STORAGE: ChainSegment[] = [
-  { key: "pas-0", type: "straight", position: [16, 0, 0], rotationY: 0, pathLength: 1 },
-  { key: "pas-1", type: "straight", position: [17, 0, 0], rotationY: 0, pathLength: 1 },
-  { key: "pas-2", type: "straight", position: [18, 0, 0], rotationY: 0, pathLength: 1 },
-  { key: "pas-3", type: "straight", position: [19, 0, 0], rotationY: 0, pathLength: 1 },
-];
-const FC_PROC_A_STORAGE_ITEMS: ChainItem[] = [
-  { id: "pas-0", progress: 0.08, node: <FactoryProcessedCargo />, heightOffset: 0.08 },
-  { id: "pas-1", progress: 0.4, node: <FactoryProcessedCargo />, heightOffset: 0.08 },
-  { id: "pas-2", progress: 0.72, node: <FactoryProcessedCargo />, heightOffset: 0.08 },
+const FC_INVERTED_U_ITEMS: ChainItem[] = [
+  // Left leg - ore going up
+  { id: "u-0", progress: 0.2, node: <FactoryOreCargo />, heightOffset: 0.08 },
+  { id: "u-2", progress: 0.5, node: <FactoryOreCargo />, heightOffset: 0.08 },
+  { id: "u-4", progress: 0.8, node: <FactoryOreCargo />, heightOffset: 0.08 },
+  // Top bar - ingots going across (after smelter)
+  { id: "u-9", progress: 0.3, node: <FactoryIngotCargo />, heightOffset: 0.08 },
+  { id: "u-11", progress: 0.6, node: <FactoryIngotCargo />, heightOffset: 0.08 },
+  { id: "u-13", progress: 0.4, node: <FactoryIngotCargo />, heightOffset: 0.08 },
+  // Right leg - processed going down (after processor)
+  { id: "u-17", progress: 0.3, node: <FactoryProcessedCargo />, heightOffset: 0.08 },
+  { id: "u-19", progress: 0.6, node: <FactoryProcessedCargo />, heightOffset: 0.08 },
+  { id: "u-21", progress: 0.9, node: <FactoryProcessedCargo />, heightOffset: 0.08 },
 ];
 
 /**
@@ -618,115 +472,61 @@ function ConnectedFactory(props: ModelProps) {
   return (
     <group {...props}>
       {/* ═══════════════════════════════════════════
-          BUILDINGS — scaled so they're bigger than belts
+          BUILDINGS — Full Inverted U Layout
+
+          Miner(0,8) → UP → Smelter(3,0) → Splitter(6,0) → Processor(9,0) → DOWN → Storage(10,8)
+
+          Flow follows the inverted U path with curved corners.
           ═══════════════════════════════════════════ */}
 
-      {/* Miner A at (-5, 0) */}
-      <group position={[-5, 0, 0]} scale={S_MINER}>
+      {/* ─── LEFT LEG (bottom) ─── */}
+
+      {/* Miner at bottom-left of U (0, 8) */}
+      <group position={[0, 0, 8]} scale={S_MINER}>
         <ResourceNode resource="iron" purity="impure" />
         <Miner status="green" nodeHeight={NODE_MINER_OFFSET.impure} />
       </group>
 
-      {/* Miner B at (0, -3) — feeding south into merger */}
-      <group position={[0, 0, -3]} scale={S_MINER} rotation={[0, -Math.PI / 2, 0]}>
-        <ResourceNode resource="iron" purity="impure" />
-        <Miner status="green" nodeHeight={NODE_MINER_OFFSET.impure} />
-      </group>
+      {/* ─── TOP BAR ─── */}
 
-      {/* Merger at (0, 0) */}
-      <group position={[0, 0, 0]} scale={S_MERGER}>
-        <Merger status="green" />
-      </group>
-
-      {/* Smelter at (5, 0) */}
-      <group position={[5, 0, 0]} scale={S_SMELTER}>
+      {/* Smelter at x=3 (in the flow) */}
+      <group position={[3, 0, 0]} scale={S_SMELTER}>
         <OreSmelter status="green" />
       </group>
 
-      {/* Splitter at (10, 0) */}
-      <group position={[10, 0, 0]} scale={S_SPLITTER}>
-        <Splitter status="green" />
-      </group>
-
-      {/* Processor A at (15, 0) */}
-      <group position={[15, 0, 0]} scale={S_PROCESSOR}>
+      {/* Processor at x=6 (in the flow) */}
+      <group position={[6, 0, 0]} scale={S_PROCESSOR}>
         <ProcessorUnit status="green" />
       </group>
 
-      {/* Processor B at (12, 3) — south branch via curve */}
-      <group position={[12, 0, 3]} scale={S_PROCESSOR}>
-        <ProcessorUnit status="green" />
-      </group>
+      {/* ─── RIGHT LEG (bottom) ─── */}
 
-      {/* Modular Storage at (20, 0) */}
-      <group position={[20, 0, 0]} scale={S_STORAGE}>
+      {/* Storage at bottom-right of U (10, 8) */}
+      <group position={[10, 0, 8]} scale={S_STORAGE}>
         <ModularStorage status="green" />
       </group>
 
       {/* ═══════════════════════════════════════════
-          BELT CHAINS (with animated items)
+          BELT CHAIN — One continuous inverted U with curves
           ═══════════════════════════════════════════ */}
 
-      {/* Miner A → Merger */}
       <BeltChain
-        segments={FC_MINER_A}
-        items={FC_MINER_A_ITEMS}
-        power="running" content="filled" ratePerMinute={60} endCaps loop
-      />
-
-      {/* Miner B → Merger (south) */}
-      <BeltChain
-        segments={FC_MINER_B}
-        items={FC_MINER_B_ITEMS}
-        power="running" content="filled" ratePerMinute={60} endCaps loop
-      />
-
-      {/* Merger → Smelter */}
-      <BeltChain
-        segments={FC_MERGE_SMELT}
-        items={FC_MERGE_SMELT_ITEMS}
-        power="running" content="filled" ratePerMinute={60} endCaps loop
-      />
-
-      {/* Smelter → Splitter */}
-      <BeltChain
-        segments={FC_SMELT_SPLIT}
-        items={FC_SMELT_SPLIT_ITEMS}
-        power="running" content="filled" ratePerMinute={60} endCaps loop
-      />
-
-      {/* Splitter → Processor A */}
-      <BeltChain
-        segments={FC_SPLIT_PROC_A}
-        items={FC_SPLIT_PROC_A_ITEMS}
-        power="running" content="filled" ratePerMinute={60} endCaps loop
-      />
-
-      {/* Splitter → Processor B (south) */}
-      <BeltChain
-        segments={FC_SPLIT_PROC_B}
-        items={FC_SPLIT_PROC_B_ITEMS}
-        power="running" content="filled" ratePerMinute={60} endCaps loop
-      />
-
-      {/* Processor A → ModularStorage (3-tile belt run) */}
-      <BeltChain
-        segments={FC_PROC_A_STORAGE}
-        items={FC_PROC_A_STORAGE_ITEMS}
+        segments={FC_INVERTED_U}
+        items={FC_INVERTED_U_ITEMS}
         power="running" content="filled" ratePerMinute={60} endCaps loop
       />
 
       {/* ═══════════════════════════════════════════
-          SCENERY / POWER
+          SCENERY / POWER — inside the U
           ═══════════════════════════════════════════ */}
 
-      <group position={[5, 0, -2]} scale={S_BURNER}>
+      <group position={[5, 0, 4]} scale={S_BURNER}>
         <BiomassBurner status="green" />
       </group>
-      <WindTurbine position={[15, 0, -2]} status="green" />
-      <PowerPole position={[-3, 0, -1.5]} />
-      <PowerPole position={[8, 0, -1.5]} />
-      <PowerPole position={[18, 0, -1.5]} />
+      <WindTurbine position={[5, 0, 6]} status="green" />
+      <PowerPole position={[2, 0, 4]} />
+      <PowerPole position={[5, 0, -1.5]} />
+      <PowerPole position={[8, 0, 4]} />
     </group>
   );
 }
@@ -857,6 +657,18 @@ const SECTIONS: Section[] = [
       },
       {
         kind: "component",
+        name: "Portal Entry",
+        component: () => <Portal type="entry" active />,
+        scale: 1,
+      },
+      {
+        kind: "component",
+        name: "Portal Exit",
+        component: () => <Portal type="exit" active />,
+        scale: 1,
+      },
+      {
+        kind: "component",
         name: "Belt Running",
         component: BeltStraightRunning,
       },
@@ -915,6 +727,7 @@ const SECTIONS: Section[] = [
         scale: 1.3,
       },
       { kind: "component", name: "MechLeg md", component: MechLegMd, scale: 2 },
+      { kind: "component", name: "WIP Sign", component: WIPSign, scale: 2.5 },
     ],
   },
   /* Connected Factory is rendered separately — not in slots */

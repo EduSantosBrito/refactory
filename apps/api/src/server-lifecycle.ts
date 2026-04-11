@@ -12,7 +12,7 @@ export class ShutdownError extends Data.TaggedError("ShutdownError")<{
   readonly cause: unknown;
 }> {}
 
-export const createShutdown = Effect.fnUntraced(function* (
+export const createShutdown = Effect.fn("api.lifecycle.createShutdown")(function* (
   server: ClosableServer,
   runtime: DisposableRuntime,
 ) {
@@ -30,7 +30,7 @@ export const createShutdown = Effect.fnUntraced(function* (
     ),
   );
 
-  return Effect.fnUntraced(function* () {
+  return Effect.fn("api.lifecycle.shutdown")(function* () {
     const activeShutdown = shutdownPromise ?? runPromise(shutdownEffect);
     shutdownPromise = activeShutdown;
 
@@ -43,7 +43,7 @@ const removeShutdownHandlers = (onSignal: () => void) => () => {
   process.off("SIGTERM", onSignal);
 };
 
-export const installShutdownHandlers = Effect.fnUntraced(function* (
+export const installShutdownHandlers = Effect.fn("api.lifecycle.installShutdownHandlers")(function* (
   shutdown: Effect.Success<ReturnType<typeof createShutdown>>,
 ) {
   const services = yield* Effect.services();

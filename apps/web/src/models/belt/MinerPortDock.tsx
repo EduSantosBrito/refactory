@@ -1,8 +1,7 @@
 import { useFrame } from "@react-three/fiber";
 import type { AtomRegistry } from "effect/unstable/reactivity";
 import { useMemo, useRef } from "react";
-import type { Group, ShaderMaterial } from "three";
-import { FrontSide, Vector3 } from "three";
+import type { Group, Mesh } from "three";
 import { COLORS } from "../colors";
 import { B } from "../building/palette";
 import { syncMinerMotion } from "../Miner.state";
@@ -12,7 +11,7 @@ import {
   DEFAULT_BELT_RATE_PER_MINUTE,
   resolveBeltSpeed,
 } from "./constants";
-import { GROOVE_RUNNING, grooveFrag, grooveVert } from "./shaders";
+import { useGrooveMaterial } from "./useGrooveMaterial";
 
 /* ── Palette ──────────────────────────────────────────────── */
 
@@ -23,7 +22,7 @@ const HULL_BRIGHT = B.bright;
 
 const BOX_W = 0.14;
 const BOX_H = 0.12;
-const BOX_D = 0.20;
+const BOX_D = 0.2;
 const BOX_X = 0.75;
 
 /* ── Door panel in body-local space ───────────────────────── */
@@ -32,14 +31,11 @@ const DOOR_FACE_X = 0.326;
 const DOOR_Y = 0.245;
 
 /* ── Ramp belt profile ────────────────────────────────────── */
-/* Follows IndustrialSmelter NarrowBeltRun approach:
- * define local belt dimensions, build cross-section
- * from bottom (base plate) upward. */
 
 const R_BASE_H = 0.018;
 const R_FRAME_H = 0.05;
 const R_SURFACE_W = 0.16;
-const R_FRAME_W = 0.20;
+const R_FRAME_W = 0.2;
 const R_BASE_W = 0.24;
 const R_RAIL_W = 0.018;
 const R_RAIL_H = 0.012;
@@ -58,10 +54,6 @@ const RUNG_COUNT = 12;
 
 const RUNG_KEYS = Array.from({ length: RUNG_COUNT }, (_, i) => `r-${i}`);
 const STRUT_KEYS = Array.from({ length: STRUT_COUNT }, (_, i) => `s-${i}`);
-
-/* ── Reusable vector for groove lerp ──────────────────────── */
-
-const _grooveLerpTarget = new Vector3();
 
 /* ── Static geometry ──────────────────────────────────────── */
 
@@ -115,7 +107,7 @@ export function MinerPortDock({
   const geo = useMemo(() => computeGeometry(groundDistance), [groundDistance]);
 
   const boxRef = useRef<Group>(null);
-  const grooveRef = useRef<ShaderMaterial>(null);
+  const grooveRef = useRef<Mesh>(null);
   const strutBarRefs = useRef<(Group | null)[]>([]);
   const strutFootRefs = useRef<(Group | null)[]>([]);
 
@@ -123,31 +115,23 @@ export function MinerPortDock({
     ratePerMinute: DEFAULT_BELT_RATE_PER_MINUTE,
   });
 
-  useFrame(({ clock }, delta) => {
+  const grooveRepeat = geo.rampLen * R_GROOVE_REPEAT;
+
+  // Dual-mode groove material (GLSL for WebGL, TSL for WebGPU)
+  const { material: grooveMaterial } = useGrooveMaterial({
+    repeat: grooveRepeat,
+    running: true,
+    speed: beltSpeed,
+  });
+
+  // Strut animation (separate from groove animation)
+  useFrame(({ clock }) => {
     const { drop } = syncMinerMotion(registry, clock.elapsedTime);
     const groundY = -groundDistance + drop;
 
     // Pin output box to ground
     if (boxRef.current) {
       boxRef.current.position.y = groundY + BOX_H / 2;
-    }
-
-    // Animate groove scrolling (same approach as NarrowBeltRun)
-    if (grooveRef.current) {
-      const u = grooveRef.current.uniforms as {
-        uTime: { value: number };
-        uRepeat: { value: number };
-        uOpacity: { value: number };
-        uColor: { value: Vector3 };
-      };
-      u.uTime.value += delta * beltSpeed;
-      u.uRepeat.value = geo.rampLen * R_GROOVE_REPEAT;
-      u.uOpacity.value +=
-        (GROOVE_RUNNING.opacity - u.uOpacity.value) * 0.1;
-      u.uColor.value.lerp(
-        _grooveLerpTarget.set(...GROOVE_RUNNING.color),
-        0.1,
-      );
     }
 
     // Animate strut legs (IK feet)
@@ -169,10 +153,15 @@ export function MinerPortDock({
     }
   });
 
-  const { boxY, rampLen, rampAngle, rampMidX, rampMidY, staticGroundY, struts } =
-    geo;
-
-  const grooveRepeat = rampLen * R_GROOVE_REPEAT;
+  const {
+    boxY,
+    rampLen,
+    rampAngle,
+    rampMidX,
+    rampMidY,
+    staticGroundY,
+    struts,
+  } = geo;
 
   return (
     <group>
@@ -245,10 +234,7 @@ export function MinerPortDock({
 
         {/* Side accent stripes — rail orange */}
         {([-1, 1] as const).map((sz) => (
-          <mesh
-            key={`sa-${sz}`}
-            position={[0, 0, sz * (BOX_D / 2 + 0.002)]}
-          >
+          <mesh key={`sa-${sz}`} position={[0, 0, sz * (BOX_D / 2 + 0.002)]}>
             <boxGeometry args={[BOX_W * 0.75, BOX_H * 0.22, 0.005]} />
             <meshStandardMaterial color={BELT_COLORS.rail} {...BELT_MAT.rail} />
           </mesh>
@@ -258,10 +244,7 @@ export function MinerPortDock({
       {/* ══════════════════════════════════════════════════════
        *  Conveyor Ramp — NarrowBeltRun-style layered belt
        * ══════════════════════════════════════════════════════ */}
-      <group
-        position={[rampMidX, rampMidY, 0]}
-        rotation={[0, 0, rampAngle]}
-      >
+      <group position={[rampMidX, rampMidY, 0]} rotation={[0, 0, rampAngle]}>
         {/* ── Layer 1: Base plate (widest, bottom) ── */}
         <mesh position={[0, BELT_Y + R_BASE_H / 2, 0]}>
           <boxGeometry args={[rampLen + 0.02, R_BASE_H, R_BASE_W]} />
@@ -282,19 +265,10 @@ export function MinerPortDock({
 
         {/* ── Layer 2: Frame body ── */}
         <mesh
-          position={[
-            0,
-            BELT_Y + R_BASE_H + (R_FRAME_H - R_BASE_H) / 2,
-            0,
-          ]}
+          position={[0, BELT_Y + R_BASE_H + (R_FRAME_H - R_BASE_H) / 2, 0]}
         >
-          <boxGeometry
-            args={[rampLen, R_FRAME_H - R_BASE_H, R_FRAME_W]}
-          />
-          <meshStandardMaterial
-            color={BELT_COLORS.frame}
-            {...BELT_MAT.frame}
-          />
+          <boxGeometry args={[rampLen, R_FRAME_H - R_BASE_H, R_FRAME_W]} />
+          <meshStandardMaterial color={BELT_COLORS.frame} {...BELT_MAT.frame} />
         </mesh>
 
         {/* ── Layer 3: Belt surface (dark plane) ── */}
@@ -323,36 +297,18 @@ export function MinerPortDock({
             ]}
           >
             <boxGeometry args={[rampLen + 0.02, R_RAIL_H, R_RAIL_W]} />
-            <meshStandardMaterial
-              color={BELT_COLORS.rail}
-              {...BELT_MAT.rail}
-            />
+            <meshStandardMaterial color={BELT_COLORS.rail} {...BELT_MAT.rail} />
           </mesh>
         ))}
 
-        {/* ── Groove overlay (animated scrolling) ── */}
+        {/* ── Groove overlay — TSL/GLSL scrolling ── */}
         <mesh
+          ref={grooveRef}
           position={[0, BELT_Y + R_FRAME_H + 0.003, 0]}
           rotation={[-Math.PI / 2, 0, 0]}
+          material={grooveMaterial}
         >
           <planeGeometry args={[rampLen, R_SURFACE_W]} />
-          <shaderMaterial
-            ref={grooveRef}
-            transparent
-            depthWrite={false}
-            side={FrontSide}
-            polygonOffset
-            polygonOffsetFactor={-4}
-            polygonOffsetUnits={-4}
-            vertexShader={grooveVert}
-            fragmentShader={grooveFrag}
-            uniforms={{
-              uTime: { value: 0 },
-              uRepeat: { value: grooveRepeat },
-              uOpacity: { value: GROOVE_RUNNING.opacity },
-              uColor: { value: new Vector3(...GROOVE_RUNNING.color) },
-            }}
-          />
         </mesh>
 
         {/* ── Cross-bar rungs (structural, on top of surface) ── */}
@@ -365,10 +321,7 @@ export function MinerPortDock({
               position={[x, BELT_Y + R_FRAME_H + R_RAIL_H + 0.003, 0]}
             >
               <boxGeometry args={[0.012, 0.006, R_SURFACE_W]} />
-              <meshStandardMaterial
-                color={BELT_COLORS.cap}
-                {...BELT_MAT.cap}
-              />
+              <meshStandardMaterial color={BELT_COLORS.cap} {...BELT_MAT.cap} />
             </mesh>
           );
         })}
@@ -379,13 +332,8 @@ export function MinerPortDock({
             key={`ec-${end}`}
             position={[end * (rampLen / 2 + 0.005), BELT_Y + R_FRAME_H / 2, 0]}
           >
-            <boxGeometry
-              args={[0.015, R_FRAME_H * 0.7, R_SURFACE_W + 0.02]}
-            />
-            <meshStandardMaterial
-              color={BELT_COLORS.cap}
-              {...BELT_MAT.cap}
-            />
+            <boxGeometry args={[0.015, R_FRAME_H * 0.7, R_SURFACE_W + 0.02]} />
+            <meshStandardMaterial color={BELT_COLORS.cap} {...BELT_MAT.cap} />
           </mesh>
         ))}
 
@@ -416,10 +364,7 @@ export function MinerPortDock({
       <group position={[DOOR_FACE_X + 0.005, DOOR_Y, 0]}>
         <mesh>
           <boxGeometry args={[0.02, 0.12, R_FRAME_W + 0.03]} />
-          <meshStandardMaterial
-            color={BELT_COLORS.frame}
-            {...BELT_MAT.frame}
-          />
+          <meshStandardMaterial color={BELT_COLORS.frame} {...BELT_MAT.frame} />
         </mesh>
         <mesh position={[0.005, 0.065, 0]}>
           <boxGeometry args={[0.025, 0.012, R_FRAME_W + 0.04]} />
@@ -476,9 +421,7 @@ export function MinerPortDock({
                 position={[0, strut.baseHeight * 0.1, 0.04]}
                 rotation={[0.35, 0, 0]}
               >
-                <boxGeometry
-                  args={[0.006, strut.baseHeight * 0.4, 0.006]}
-                />
+                <boxGeometry args={[0.006, strut.baseHeight * 0.4, 0.006]} />
                 <meshStandardMaterial
                   color={BELT_COLORS.base}
                   {...BELT_MAT.base}
@@ -488,9 +431,7 @@ export function MinerPortDock({
                 position={[0, strut.baseHeight * 0.1, -0.04]}
                 rotation={[-0.35, 0, 0]}
               >
-                <boxGeometry
-                  args={[0.006, strut.baseHeight * 0.4, 0.006]}
-                />
+                <boxGeometry args={[0.006, strut.baseHeight * 0.4, 0.006]} />
                 <meshStandardMaterial
                   color={BELT_COLORS.base}
                   {...BELT_MAT.base}
@@ -525,10 +466,7 @@ export function MinerPortDock({
             {/* Upper bracket */}
             <mesh position={[0, strut.topY - 0.015, 0]}>
               <boxGeometry args={[0.025, 0.014, R_FRAME_W + 0.01]} />
-              <meshStandardMaterial
-                color={BELT_COLORS.cap}
-                {...BELT_MAT.cap}
-              />
+              <meshStandardMaterial color={BELT_COLORS.cap} {...BELT_MAT.cap} />
             </mesh>
           </group>
         );

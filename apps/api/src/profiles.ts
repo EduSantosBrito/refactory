@@ -43,7 +43,9 @@ export class ProfileRepository extends ServiceMap.Service<ProfileRepository>()(
       const sqlite = yield* SqliteDatabase;
       const { database } = sqlite;
 
-      const getProfile = Effect.fnUntraced(function* (publicKey: string) {
+      const getProfile = Effect.fn("api.profiles.getProfile")(function* (
+        publicKey: string,
+      ) {
         const row = yield* Effect.try({
           try: () =>
             database
@@ -63,7 +65,7 @@ export class ProfileRepository extends ServiceMap.Service<ProfileRepository>()(
         });
       });
 
-      const upsertProfile = Effect.fnUntraced(function* (
+      const upsertProfile = Effect.fn("api.profiles.upsertProfile")(function* (
         actor: ActorContext,
         now: string,
       ) {

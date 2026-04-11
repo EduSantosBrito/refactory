@@ -30,10 +30,13 @@ import type {
 /**
  * Compute local-space position within a single segment at progress t (0..1).
  * Returns position relative to the segment's origin.
+ *
+ * @param turn - For curves: "left" = CCW (west→north), "right" = CW (west→south)
  */
 function getSegmentLocalPosition(
   type: BeltSegmentType,
   t: number,
+  turn: "left" | "right" = "left",
 ): ChainPosition {
   if (type === "straight") {
     // Linear from input (-0.5) to output (+0.5) along X
@@ -45,18 +48,21 @@ function getSegmentLocalPosition(
     };
   }
 
-  // Curve: arc from west face to north face
+  // Curve: arc from west face to north face (left) or south face (right)
   const angle = ARC_START + t * (ARC_END - ARC_START);
   const cosA = Math.cos(angle);
   const sinA = Math.sin(angle);
 
-  // Tangent direction: (sin(a), 0, -cos(a)) pointing along travel
-  const facingY = Math.atan2(sinA, -cosA);
+  // Mirror Z for right turns
+  const mirrorZ = turn === "right" ? -1 : 1;
+
+  // Tangent direction: for left turn (sin(a), 0, -cos(a)), for right turn (sin(a), 0, cos(a))
+  const facingY = Math.atan2(sinA, -cosA * mirrorZ);
 
   return {
     x: CURVE_PIVOT_X + CURVE_CENTER_R * cosA,
     y: BELT_TILE.height,
-    z: CURVE_PIVOT_Z + CURVE_CENTER_R * sinA,
+    z: (CURVE_PIVOT_Z + CURVE_CENTER_R * sinA) * mirrorZ,
     facingY,
   };
 }
@@ -104,7 +110,7 @@ function getChainPosition(
         seg.pathLength > 0
           ? Math.max(0, Math.min(1, (distance - segStart) / seg.pathLength))
           : 0;
-      const localPos = getSegmentLocalPosition(seg.type, localT);
+      const localPos = getSegmentLocalPosition(seg.type, localT, seg.turn);
       return localToWorld(localPos, seg);
     }
   }
@@ -287,6 +293,8 @@ export function BeltChain({
             ratePerMinute={ratePerMinute}
             speed={beltSpeed}
             endCap={endCap}
+            turn={seg.turn}
+            reverseScroll={seg.reverseScroll}
           />
         );
       })}

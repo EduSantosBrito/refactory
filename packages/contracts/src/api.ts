@@ -19,6 +19,7 @@ import {
 import {
   CreateWorldRequest,
   CreateWorldResponse,
+  DeleteWorldResponse,
   GetWorldResponse,
   IdempotencyConflictError,
   InvalidWorldCursorError,
@@ -128,6 +129,24 @@ const WorldsApi = HttpApiGroup.make("worlds")
       ],
       params: WorldIdParams,
       success: GetWorldResponse,
+    })
+      .middleware(ActorAuth)
+      .annotate(
+        OpenApi.Description,
+        "Requires signed actor headers: x-refactory-actor-signature, x-refactory-actor-key, x-refactory-actor-name, x-refactory-actor-timestamp.",
+      ),
+  )
+  .add(
+    HttpApiEndpoint.delete("deleteWorld", "/worlds/:worldId", {
+      error: [
+        ActorAuthError,
+        InternalServerError,
+        ServiceUnavailableError,
+        WorldAccessDeniedError,
+        WorldNotFoundError,
+      ],
+      params: WorldIdParams,
+      success: DeleteWorldResponse,
     })
       .middleware(ActorAuth)
       .annotate(

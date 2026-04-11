@@ -1,9 +1,10 @@
 import { useFrame } from "@react-three/fiber";
-import { Duration, Effect, Fiber, Layer, ManagedRuntime } from "effect";
+import { Duration, Effect, Fiber } from "effect";
 import { Atom, AtomRegistry } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useRef } from "react";
 import type { Group, Mesh } from "three";
 import { MathUtils, MeshStandardMaterial } from "three";
+import { runFork } from "../effectRuntime";
 import { Antenna } from "./Antenna";
 import { MAT, type ModelProps } from "./colors";
 
@@ -186,7 +187,9 @@ function RocketLeg({
   const footRef = useRef<Group>(null);
 
   useFrame(() => {
-    const { deploy, drop } = registry.get(rocketMotionAtom);
+    const state = registry.get(rocketMotionAtom);
+    const deploy = state.deploy;
+    const drop = state.drop;
 
     // IK target — lerp between retracted and deployed, add squat offset
     const fx = MathUtils.lerp(0.04, LEG_FX, deploy);
@@ -347,9 +350,6 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
   const flameRef = useRef<Group>(null);
   const smokeRefs = useRef<Mesh[]>([]);
   const registryRef = useRef<AtomRegistry.AtomRegistry | null>(null);
-  const runtimeRef = useRef<ManagedRuntime.ManagedRuntime<never, never> | null>(
-    null,
-  );
   const autoLaunchFiberRef = useRef<Fiber.Fiber<void, never> | null>(null);
   const launchRef = useRef<() => void>(() => {});
 
@@ -357,20 +357,15 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
     registryRef.current = AtomRegistry.make();
   }
 
-  if (runtimeRef.current === null) {
-    runtimeRef.current = ManagedRuntime.make(Layer.empty);
-  }
-
   const registry = registryRef.current;
-  const runtime = runtimeRef.current;
 
   const clearAutoLaunch = useCallback(() => {
     const fiber = autoLaunchFiberRef.current;
     if (fiber !== null) {
       autoLaunchFiberRef.current = null;
-      runtime.runFork(Fiber.interrupt(fiber));
+      runFork(Fiber.interrupt(fiber));
     }
-  }, [runtime]);
+  }, []);
 
   const setPhase = useCallback(
     (phase: RocketPhase) => {
@@ -394,7 +389,7 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
   const scheduleLaunch = useCallback(
     (delay: Duration.Input) => {
       clearAutoLaunch();
-      autoLaunchFiberRef.current = runtime.runFork(
+      autoLaunchFiberRef.current = runFork(
         Effect.gen(function* () {
           yield* Effect.sleep(delay);
           yield* Effect.sync(() => {
@@ -404,7 +399,7 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
         }),
       );
     },
-    [clearAutoLaunch, runtime],
+    [clearAutoLaunch],
   );
 
   useEffect(() => {
@@ -434,10 +429,15 @@ export function Rocket({ onPhaseChange, apiRef, ...props }: RocketProps) {
     scheduleLaunch(INITIAL_AUTO_LAUNCH_DELAY);
     return () => {
       clearAutoLaunch();
-      registry.dispose();
-      void runtime.dispose();
     };
-  }, [clearAutoLaunch, registry, runtime, scheduleLaunch]);
+  }, [clearAutoLaunch, scheduleLaunch]);
+
+  useEffect(
+    () => () => {
+      clearAutoLaunch();
+    },
+    [clearAutoLaunch],
+  );
 
   useFrame((_, delta) => {
     if (!rocketRef.current || !flameRef.current) return;

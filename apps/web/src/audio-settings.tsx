@@ -1,4 +1,7 @@
+import { Effect } from "effect";
 import { createContext, useContext, useEffect, useState } from "react";
+import { getLocalStorageItem, setLocalStorageItem } from "./browserStorage";
+import { runSync } from "./effectRuntime";
 
 type AudioChannel = "music" | "soundEffects";
 
@@ -44,37 +47,30 @@ function readStoredVolume(
 }
 
 function readStoredAudioSettings(): AudioSettings {
-  if (typeof window === "undefined") {
-    return DEFAULT_AUDIO_SETTINGS;
-  }
-
-  const raw = window.localStorage.getItem(AUDIO_SETTINGS_STORAGE_KEY);
+  const raw = getLocalStorageItem(AUDIO_SETTINGS_STORAGE_KEY);
   if (!raw) {
     return DEFAULT_AUDIO_SETTINGS;
   }
 
-  try {
-    const parsed = JSON.parse(raw);
-    if (!isRecord(parsed)) {
-      return DEFAULT_AUDIO_SETTINGS;
-    }
-
-    return {
-      overall: readStoredVolume(
-        parsed,
-        "overall",
-        DEFAULT_AUDIO_SETTINGS.overall,
-      ),
-      music: readStoredVolume(parsed, "music", DEFAULT_AUDIO_SETTINGS.music),
-      soundEffects: readStoredVolume(
-        parsed,
-        "soundEffects",
-        DEFAULT_AUDIO_SETTINGS.soundEffects,
-      ),
-    };
-  } catch {
+  const parsed = runSync(
+    Effect.try({
+      try: () => JSON.parse(raw),
+      catch: () => "audioSettings.parse",
+    }).pipe(Effect.catch(() => Effect.succeed<unknown | undefined>(undefined))),
+  );
+  if (!isRecord(parsed)) {
     return DEFAULT_AUDIO_SETTINGS;
   }
+
+  return {
+    overall: readStoredVolume(parsed, "overall", DEFAULT_AUDIO_SETTINGS.overall),
+    music: readStoredVolume(parsed, "music", DEFAULT_AUDIO_SETTINGS.music),
+    soundEffects: readStoredVolume(
+      parsed,
+      "soundEffects",
+      DEFAULT_AUDIO_SETTINGS.soundEffects,
+    ),
+  };
 }
 
 function getChannelVolume(
@@ -96,10 +92,16 @@ export function AudioSettingsProvider({
   );
 
   useEffect(() => {
-    window.localStorage.setItem(
-      AUDIO_SETTINGS_STORAGE_KEY,
-      JSON.stringify(settings),
+    const encoded = runSync(
+      Effect.try({
+        try: () => JSON.stringify(settings),
+        catch: () => "audioSettings.stringify",
+      }).pipe(Effect.catch(() => Effect.succeed<string | undefined>(undefined))),
     );
+
+    if (encoded !== undefined) {
+      void setLocalStorageItem(AUDIO_SETTINGS_STORAGE_KEY, encoded);
+    }
   }, [settings]);
 
   return (

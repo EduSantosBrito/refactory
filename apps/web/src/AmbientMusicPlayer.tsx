@@ -37,6 +37,7 @@ export function AmbientMusicPlayer() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentTrackIndexRef = useRef(0);
   const hasUnlockedRef = useRef(false);
+  const isUnlockingRef = useRef(false);
 
   musicVolumeRef.current = musicVolume;
 
@@ -49,10 +50,10 @@ export function AmbientMusicPlayer() {
     audio.volume = musicVolumeRef.current;
   }, []);
 
-  const playTrack = useCallback(async (index: number) => {
+  const playTrack = useCallback(async (index: number): Promise<boolean> => {
     const audio = audioRef.current;
     if (!audio) {
-      return;
+      return false;
     }
 
     currentTrackIndexRef.current = index;
@@ -62,8 +63,9 @@ export function AmbientMusicPlayer() {
 
     try {
       await audio.play();
+      return true;
     } catch {
-      return;
+      return false;
     }
   }, []);
 
@@ -90,16 +92,21 @@ export function AmbientMusicPlayer() {
     audio.addEventListener("ended", handleEnded);
 
     const unlockPlayback = () => {
-      if (hasUnlockedRef.current) {
+      if (hasUnlockedRef.current || isUnlockingRef.current) {
         return;
       }
 
-      hasUnlockedRef.current = true;
-      void playTrack(currentTrackIndexRef.current);
+      isUnlockingRef.current = true;
+      void playTrack(currentTrackIndexRef.current).then((didStart) => {
+        isUnlockingRef.current = false;
+        if (didStart) {
+          hasUnlockedRef.current = true;
+        }
+      });
     };
 
-    window.addEventListener("pointerdown", unlockPlayback, { once: true });
-    window.addEventListener("keydown", unlockPlayback, { once: true });
+    window.addEventListener("pointerdown", unlockPlayback);
+    window.addEventListener("keydown", unlockPlayback);
 
     return () => {
       window.removeEventListener("pointerdown", unlockPlayback);

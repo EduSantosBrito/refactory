@@ -71,7 +71,9 @@ const buildSigningPayload = (
     headers["x-refactory-actor-name"],
   ].join("\n");
 
-export const stripActorAuthSearchParams = Effect.fnUntraced(function* (
+export const stripActorAuthSearchParams = Effect.fn(
+  "api.auth.stripActorAuthSearchParams",
+)(function* (
   url: string,
 ) {
   const parsed = yield* Effect.try({
@@ -90,7 +92,7 @@ export const stripActorAuthSearchParams = Effect.fnUntraced(function* (
   return `${parsed.pathname}${parsed.search}`;
 });
 
-export const verifySignedActorRequest = Effect.fnUntraced(function* (
+export const verifySignedActorRequest = Effect.fn("api.auth.verifySignedActorRequest")(function* (
   request: {
     readonly method: string;
     readonly url: string;
@@ -181,7 +183,7 @@ export const verifySignedActorRequest = Effect.fnUntraced(function* (
 });
 
 export const ActorAuthLive = Layer.succeed(ActorAuth)({
-  signature: Effect.fnUntraced(function* (httpEffect, options) {
+  signature: Effect.fn("api.auth.signature")(function* (httpEffect, options) {
     const request = yield* HttpServerRequest.HttpServerRequest;
     const headers = yield* HttpServerRequest.schemaHeaders(
       SignedActorHeaders,

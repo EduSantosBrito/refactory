@@ -78,3 +78,4 @@ export { Rocket } from "./Rocket";
 export type { StatusPoleStatus } from "./StatusPole";
 export { StatusPole } from "./StatusPole";
 export { WindTurbine } from "./WindTurbine";
+export { WIPSign } from "./WIPSign";

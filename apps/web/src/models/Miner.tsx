@@ -1,6 +1,6 @@
 import { useFrame } from "@react-three/fiber";
 import { AtomRegistry } from "effect/unstable/reactivity";
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import type { Group } from "three";
 import type { ModelProps } from "./colors";
 import { syncMinerMotion } from "./Miner.state";
@@ -27,12 +27,6 @@ export function Miner({
   }
 
   const registry = registryRef.current;
-
-  useEffect(() => {
-    return () => {
-      registry.dispose();
-    };
-  }, [registry]);
 
   useFrame(({ clock }) => {
     if (!chassisRef.current) return;

@@ -1,6 +1,9 @@
 import type { AssetId } from "@refactory/contracts/worlds";
-import { Canvas } from "@react-three/fiber";
+import type { WorldRuntimeSnapshot } from "@refactory/contracts/runtime";
 import { lazy, Suspense } from "react";
+import { OutlineProvider } from "./components/OutlineProvider";
+import { WebGPUCanvas } from "./components/WebGPUCanvas";
+import type { PortalParams } from "./portal";
 
 const WorldScene = lazy(() =>
   import("./world/WorldScene").then((module) => ({
@@ -16,15 +19,22 @@ const INITIAL_CAMERA_TARGET: [number, number, number] = [0, 0, 0];
 
 export function World({
   assetId,
+  hasBackPortal = false,
   isPaused = false,
+  isPortalEntry = false,
+  portalParams = null,
+  runtimeSnapshot,
 }: {
   readonly assetId: AssetId;
+  readonly hasBackPortal?: boolean;
   readonly isPaused?: boolean;
+  readonly isPortalEntry?: boolean;
+  readonly portalParams?: PortalParams | null;
+  readonly runtimeSnapshot?: WorldRuntimeSnapshot;
 }) {
   return (
-    <Canvas
+    <WebGPUCanvas
       camera={{ position: INITIAL_CAMERA_POSITION, fov: 50, near: 0.1, far: 220 }}
-      gl={{ antialias: true, powerPreference: "high-performance" }}
       dpr={[1, 1.5]}
       onCreated={(state) => {
         state.camera.position.set(...INITIAL_CAMERA_POSITION);
@@ -61,9 +71,18 @@ export function World({
         args={[WORLD_FOG_COLOR, WORLD_FOG_NEAR, WORLD_FOG_FAR]}
       />
 
-      <Suspense fallback={null}>
-        <WorldScene assetId={assetId} isPaused={isPaused} />
-      </Suspense>
-    </Canvas>
+      <OutlineProvider color={0xffffff} edgeStrength={3}>
+        <Suspense fallback={null}>
+          <WorldScene
+            assetId={assetId}
+            hasBackPortal={hasBackPortal}
+            isPaused={isPaused}
+            isPortalEntry={isPortalEntry}
+            portalParams={portalParams}
+            runtimeSnapshot={runtimeSnapshot}
+          />
+        </Suspense>
+      </OutlineProvider>
+    </WebGPUCanvas>
   );
 }

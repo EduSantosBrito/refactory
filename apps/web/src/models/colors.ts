@@ -1,8 +1,13 @@
+import type { ThreeEvent } from "@react-three/fiber";
+
 export type ModelProps = {
   position?: [number, number, number];
   rotation?: [number, number, number];
   scale?: number | [number, number, number];
   visible?: boolean;
+  onClick?: (event: ThreeEvent<MouseEvent>) => void;
+  onPointerOver?: (event: ThreeEvent<PointerEvent>) => void;
+  onPointerOut?: (event: ThreeEvent<PointerEvent>) => void;
 };
 
 export type TreeSize = "sm" | "md" | "lg";

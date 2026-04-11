@@ -4,6 +4,7 @@ import { ActorAuth } from "@refactory/contracts/auth";
 export {
   CreateWorldRequest,
   CreateWorldResponse,
+  DeleteWorldResponse,
   GetWorldResponse,
   ListWorldsResponse,
   WorldListQuery,
@@ -14,6 +15,7 @@ import type {
   WorldListQuery,
 } from "@refactory/contracts/worlds";
 import { Effect, Layer, ServiceMap } from "effect";
+import type { AnySpan } from "effect/Tracer";
 import {
   FetchHttpClient,
   HttpClient,
@@ -69,6 +71,18 @@ const stripPathPrefix = (pathname: string, prefix: string) => {
     : pathname;
 };
 
+const makeTraceparent = (span: AnySpan) => {
+  const traceFlags = span.sampled ? "01" : "00";
+  return `00-${span.traceId}-${span.spanId}-${traceFlags}`;
+};
+
+const makeCurrentTraceHeaders = Effect.fn("web.api.world.trace_headers.current")(function* () {
+  const span = yield* Effect.currentSpan;
+  return {
+    traceparent: makeTraceparent(span),
+  } as const;
+});
+
 const toSigningPathAndQuery = (
   requestUrl: string,
   fetchBasePath: string,
@@ -84,7 +98,7 @@ const toSigningPathAndQuery = (
   return `${signingPrefix}${strippedPath}${parsed.search}`;
 };
 
-const makePrefixedHttpClient = Effect.fnUntraced(function* (
+const makePrefixedHttpClient = Effect.fn("web.api.world.http_client.make_prefixed")(function* (
   fetchBasePath: string,
 ) {
   const httpClient = yield* HttpClient.HttpClient;
@@ -99,7 +113,7 @@ const makeActorAuthClient = (options: SignedWorldClientOptions) => {
 
   return HttpApiMiddleware.layerClient(
     ActorAuth,
-    Effect.fnUntraced(function* ({ next, request }) {
+    Effect.fn("web.api.world.middleware.actor_auth")(function* ({ next, request }) {
       const actor = yield* getOrCreateActorCredentials({
         displayName: options.actorDisplayName,
       }).pipe(
@@ -134,8 +148,14 @@ const makeActorAuthClient = (options: SignedWorldClientOptions) => {
             }),
         ),
       );
+      const traceHeaders = yield* makeCurrentTraceHeaders();
 
-      return yield* next(HttpClientRequest.setHeaders(request, headers));
+      return yield* next(
+        HttpClientRequest.setHeaders(request, {
+          ...headers,
+          ...traceHeaders,
+        }),
+      );
     }),
   );
 };
@@ -151,20 +171,22 @@ const makeActorAuthClient = (options: SignedWorldClientOptions) => {
  * @param options - Actor identity and path-prefix options for signed requests.
  * @returns An `Effect` that yields the generated world API client.
  */
-export const makeWorldApiClient = (options: SignedWorldClientOptions) => {
+export const makeWorldApiClient = Effect.fn("web.api.world.client.make")(function* (
+  options: SignedWorldClientOptions,
+) {
   const fetchBasePath = options.fetchBasePath ?? defaultFetchBasePath;
   const clientLayer = Layer.mergeAll(
     FetchHttpClient.layer,
     makeActorAuthClient(options),
   );
 
-  return HttpApiClient.make(Api, {
+  return yield* HttpApiClient.make(Api, {
     transformClient: (client) =>
       client.pipe(
         HttpClient.mapRequest(HttpClientRequest.prependUrl(fetchBasePath)),
       ),
   }).pipe(Effect.provide(clientLayer));
-};
+});
 
 /**
  * Expose the typed world API client as an Effect layer.
@@ -191,7 +213,7 @@ export const WorldApiClientLive = (options: SignedWorldClientOptions) =>
  * @param options - Actor identity, optional base paths, and the create-world request payload.
  * @returns An `Effect` that yields the typed create-world response.
  */
-export const createWorld = Effect.fnUntraced(function* (options: {
+export const createWorld = Effect.fn("web.api.world.create")(function* (options: {
   readonly actorDisplayName: string;
   readonly fetchBasePath?: string;
   readonly request: CreateWorldRequest;
@@ -212,7 +234,7 @@ export const createWorld = Effect.fnUntraced(function* (options: {
  * @param options - Actor identity, optional base paths, and the target world id.
  * @returns An `Effect` that yields the typed world-detail response.
  */
-export const getWorld = Effect.fnUntraced(function* (options: {
+export const getWorld = Effect.fn("web.api.world.get")(function* (options: {
   readonly actorDisplayName: string;
   readonly fetchBasePath?: string;
   readonly signingBasePath?: string;
@@ -220,6 +242,27 @@ export const getWorld = Effect.fnUntraced(function* (options: {
 }) {
   const client = yield* makeWorldApiClient(options);
   return yield* client.worlds.getWorld({
+    params: { worldId: options.worldId },
+  });
+});
+
+/**
+ * Delete a world through the shared typed API contract.
+ *
+ * @remarks
+ * The API enforces ownership through the signed actor headers, so callers only need to provide the current actor display name and target world id.
+ *
+ * @param options - Actor identity, optional base paths, and the target world id.
+ * @returns An `Effect` that yields the typed delete-world response.
+ */
+export const deleteWorld = Effect.fn("web.api.world.delete")(function* (options: {
+  readonly actorDisplayName: string;
+  readonly fetchBasePath?: string;
+  readonly signingBasePath?: string;
+  readonly worldId: string;
+}) {
+  const client = yield* makeWorldApiClient(options);
+  return yield* client.worlds.deleteWorld({
     params: { worldId: options.worldId },
   });
 });
@@ -235,7 +278,7 @@ export const getWorld = Effect.fnUntraced(function* (options: {
  * @param options - Actor identity, optional base paths, and optional world-list query values.
  * @returns An `Effect` that yields the typed world-list response.
  */
-export const listOwnWorlds = Effect.fnUntraced(function* (options: {
+export const listOwnWorlds = Effect.fn("web.api.world.list.own")(function* (options: {
   readonly actorDisplayName: string;
   readonly fetchBasePath?: string;
   readonly query?: WorldListQuery;
@@ -258,7 +301,7 @@ export const listOwnWorlds = Effect.fnUntraced(function* (options: {
  * @param options - Optional base path and world-list query values.
  * @returns An `Effect` that yields the typed public world-list response.
  */
-export const listPublicWorlds = Effect.fnUntraced(function* (options?: {
+export const listPublicWorlds = Effect.fn("web.api.world.list.public")(function* (options?: {
   readonly fetchBasePath?: string;
   readonly query?: WorldListQuery;
 }) {

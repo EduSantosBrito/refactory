@@ -119,6 +119,6 @@ const errorResponse = (error: unknown) =>
     ),
   );
 
-export const toErrorResponse = Effect.fnUntraced(function* (error: unknown) {
-  return yield* Effect.succeed(errorResponse(error));
-});
+export const toErrorResponse = Effect.fn("api.errors.toErrorResponse")(
+  (error: unknown) => Effect.succeed(errorResponse(error)),
+);

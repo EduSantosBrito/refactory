@@ -9,6 +9,7 @@ import type {
   GetWorldRuntimeResponse,
 } from "@refactory/contracts/runtime";
 import {
+  type TraceContext as SocketTraceContext,
   WorldRuntimeClientMessage,
   type WorldRuntimeServerMessage,
 } from "@refactory/contracts/socket";
@@ -23,9 +24,12 @@ import {
   Layer,
   ManagedRuntime,
   Match,
+  Option,
   Schema,
   Stream,
+  Tracer,
 } from "effect";
+import { Headers, HttpTraceContext } from "effect/unstable/http";
 import { AppConfig } from "./app-config.ts";
 import {
   stripActorAuthSearchParams,
@@ -35,6 +39,8 @@ import { RequestDecodeError, toErrorResponse } from "./backend-errors.ts";
 import { ProfileRepository } from "./profiles.ts";
 import { createShutdown, installShutdownHandlers } from "./server-lifecycle.ts";
 import { SqliteDatabase } from "./sqlite.ts";
+import { handleTelemetryTracesRequest } from "./telemetry-proxy.ts";
+import { TelemetryLive } from "./telemetry.ts";
 import { WorldRuntimeService } from "./world-runtime.ts";
 import { RuntimeCheckpointStore } from "./world-runtime-checkpoints.ts";
 import { WorldRepository, WorldService } from "./worlds.ts";
@@ -44,6 +50,7 @@ type SocketRawMessage = string | Buffer<ArrayBuffer>;
 type RuntimeSocketData = {
   actor: ActorContext;
   bound: boolean;
+  commandTraceParents: Map<string, Tracer.ExternalSpan>;
   receiptFiber: Fiber.Fiber<unknown, unknown> | undefined;
   subscriptionFiber: Fiber.Fiber<unknown, unknown> | undefined;
   worldId: string;
@@ -54,8 +61,10 @@ type Route =
   | { readonly _tag: "health" }
   | { readonly _tag: "listPublicWorlds" }
   | { readonly _tag: "createWorld" }
+  | { readonly _tag: "telemetryTraces" }
   | { readonly _tag: "listOwnWorlds" }
   | { readonly _tag: "getWorld"; readonly worldId: string }
+  | { readonly _tag: "deleteWorld"; readonly worldId: string }
   | { readonly _tag: "getWorldRuntime"; readonly worldId: string }
   | { readonly _tag: "getWorldRuntimeCheckpoint"; readonly worldId: string }
   | { readonly _tag: "submitWorldCommand"; readonly worldId: string }
@@ -124,8 +133,11 @@ const WorldRuntimeLive = WorldRuntimeService.Live.pipe(
   Layer.provide(PersistenceLive),
 );
 
+const TelemetryLayer = TelemetryLive.pipe(Layer.provide(AppConfig.Live));
+
 const ServerLayer = Layer.mergeAll(
   AppConfig.Live,
+  TelemetryLayer,
   PersistenceLive,
   WorldRuntimeLive,
   WorldServiceLive,
@@ -199,6 +211,15 @@ const getWorldRoute = (pathname: string): Route | undefined =>
     Match.orElse(() => undefined),
   );
 
+const deleteWorldRoute = (pathname: string): Route | undefined =>
+  Match.value(worldPath(pathname)).pipe(
+    Match.when(
+      Match.defined,
+      (worldId): Route => ({ _tag: "deleteWorld", worldId }),
+    ),
+    Match.orElse(() => undefined),
+  );
+
 const getWorldRuntimeRoute = (pathname: string): Route | undefined =>
   Match.value(worldRuntimePath(pathname)).pipe(
     Match.when(
@@ -234,6 +255,10 @@ const fixedRoute = (method: string, pathname: string): Route | undefined =>
       (): Route => ({ _tag: "listPublicWorlds" }),
     ),
     Match.when("POST /api/worlds", (): Route => ({ _tag: "createWorld" })),
+    Match.when(
+      "POST /api/telemetry/v1/traces",
+      (): Route => ({ _tag: "telemetryTraces" }),
+    ),
     Match.when("GET /api/worlds", (): Route => ({ _tag: "listOwnWorlds" })),
     Match.orElse((): Route | undefined => undefined),
   );
@@ -249,12 +274,52 @@ const matchGetRoute = (pathname: string): Route =>
 const matchPostRoute = (pathname: string): Route =>
   firstDefinedRoute([submitWorldCommandRoute(pathname)]);
 
+const matchDeleteRoute = (pathname: string): Route =>
+  firstDefinedRoute([deleteWorldRoute(pathname)]);
+
 const matchRoute = (method: string, pathname: string): Route =>
   fixedRoute(method, pathname) ??
   Match.value(method).pipe(
     Match.when("GET", () => matchGetRoute(pathname)),
     Match.when("POST", () => matchPostRoute(pathname)),
+    Match.when("DELETE", () => matchDeleteRoute(pathname)),
     Match.orElse(notFoundRoute),
+  );
+
+const routeTag = (route: Route) => route._tag;
+
+const routeWorldId = (route: Route) =>
+  Match.value(route).pipe(
+    Match.when({ _tag: "runtimeSocket" }, ({ worldId }) => worldId),
+    Match.when({ _tag: "getWorld" }, ({ worldId }) => worldId),
+    Match.when({ _tag: "deleteWorld" }, ({ worldId }) => worldId),
+    Match.when({ _tag: "getWorldRuntime" }, ({ worldId }) => worldId),
+    Match.when({ _tag: "getWorldRuntimeCheckpoint" }, ({ worldId }) => worldId),
+    Match.when({ _tag: "submitWorldCommand" }, ({ worldId }) => worldId),
+    Match.orElse(() => undefined),
+  );
+
+const requestSpanName = (route: Route) =>
+  Match.value(route).pipe(
+    Match.when({ _tag: "runtimeSocket" }, () => "api.request.runtimeSocket"),
+    Match.when({ _tag: "health" }, () => "api.request.health"),
+    Match.when({ _tag: "listPublicWorlds" }, () => "api.request.listPublicWorlds"),
+    Match.when({ _tag: "createWorld" }, () => "api.request.createWorld"),
+    Match.when({ _tag: "telemetryTraces" }, () => "api.request.telemetryTraces"),
+    Match.when({ _tag: "listOwnWorlds" }, () => "api.request.listOwnWorlds"),
+    Match.when({ _tag: "getWorld" }, () => "api.request.getWorld"),
+    Match.when({ _tag: "deleteWorld" }, () => "api.request.deleteWorld"),
+    Match.when({ _tag: "getWorldRuntime" }, () => "api.request.getWorldRuntime"),
+    Match.when(
+      { _tag: "getWorldRuntimeCheckpoint" },
+      () => "api.request.getWorldRuntimeCheckpoint",
+    ),
+    Match.when(
+      { _tag: "submitWorldCommand" },
+      () => "api.request.submitWorldCommand",
+    ),
+    Match.when({ _tag: "notFound" }, () => "api.request.notFound"),
+    Match.exhaustive,
   );
 
 const parseDefinedActorTimestamp = (definedValue: string) => {
@@ -284,11 +349,55 @@ const serializeSocketMessage = (rawMessage: SocketRawMessage): string =>
     Match.orElse((buffer) => decodeBinarySocketMessage(buffer)),
   );
 
+const optionalHeader = (request: Request, name: string) =>
+  request.headers.get(name) ?? undefined;
+
+const parseExternalSpanFromHeaders = (headers: Headers.Input) =>
+  HttpTraceContext.fromHeaders(Headers.fromInput(headers));
+
+const parseRequestTraceContext = (request: Request) =>
+  parseExternalSpanFromHeaders({
+    b3: optionalHeader(request, "b3"),
+    traceparent: optionalHeader(request, "traceparent"),
+    tracestate: optionalHeader(request, "tracestate"),
+    "x-b3-sampled": optionalHeader(request, "x-b3-sampled"),
+    "x-b3-spanid": optionalHeader(request, "x-b3-spanid"),
+    "x-b3-traceid": optionalHeader(request, "x-b3-traceid"),
+  });
+
+const parseSocketCommandTraceContext = (
+  traceContext: SocketTraceContext | undefined,
+) =>
+  Match.value(traceContext).pipe(
+    Match.when(Match.undefined, () => Option.none<Tracer.ExternalSpan>()),
+    Match.orElse((definedTraceContext) =>
+      parseExternalSpanFromHeaders({
+        traceparent: definedTraceContext.traceparent,
+        tracestate: definedTraceContext.tracestate,
+      }),
+    ),
+  );
+
+const toExternalSpan = (span: Tracer.AnySpan): Tracer.ExternalSpan =>
+  Match.value(span._tag).pipe(
+    Match.when("ExternalSpan", () => span as Tracer.ExternalSpan),
+    Match.orElse(() =>
+      Tracer.externalSpan({
+        annotations: span.annotations,
+        sampled: span.sampled,
+        spanId: span.spanId,
+        traceId: span.traceId,
+      }),
+    ),
+  );
+
 const rethrow = (error: unknown): never => {
   throw error;
 };
 
-const parseActorFromHeaders = Effect.fnUntraced(function* (request: Request) {
+const parseActorFromHeaders = Effect.fn("api.auth.parseActorFromHeaders")(function* (
+  request: Request,
+) {
   const timestamp = yield* parseActorTimestamp(
     request.headers.get("x-refactory-actor-timestamp"),
   );
@@ -310,7 +419,7 @@ const parseActorFromHeaders = Effect.fnUntraced(function* (request: Request) {
   );
 });
 
-const parseActorFromSearchParams = Effect.fnUntraced(function* (
+const parseActorFromSearchParams = Effect.fn("api.auth.parseActorFromSearchParams")(function* (
   request: Request,
   url: URL,
 ) {
@@ -365,14 +474,23 @@ const healthResponse = Effect.succeed(
   }),
 );
 
-const handleListPublicWorldsRoute = Effect.fnUntraced(function* (url: URL) {
+const empty = (status: number) =>
+  new Response(null, {
+    status,
+  });
+
+const handleListPublicWorldsRoute = Effect.fn("api.route.handleListPublicWorlds")(function* (
+  url: URL,
+) {
   const query = yield* decodeWorldListQueryFromUrl(url);
   const response = yield* worlds.listPublicWorlds(query);
 
   return json(response);
 });
 
-const handleCreateWorldRoute = Effect.fnUntraced(function* (request: Request) {
+const handleCreateWorldRoute = Effect.fn("api.route.handleCreateWorld")(function* (
+  request: Request,
+) {
   const actor = yield* parseActorFromHeaders(request);
   const payload = yield* Effect.tryPromise({
     try: () => request.json(),
@@ -389,7 +507,19 @@ const handleCreateWorldRoute = Effect.fnUntraced(function* (request: Request) {
   return json({ world });
 });
 
-const handleListOwnWorldsRoute = Effect.fnUntraced(function* (
+const handleTelemetryTracesRoute = Effect.fn("api.route.handleTelemetryTraces")(function* (
+  request: Request,
+) {
+  return yield* handleTelemetryTracesRequest(
+    {
+      telemetryEnabled: config.telemetryEnabled,
+      telemetryOtlpBaseUrl: config.telemetryOtlpBaseUrl,
+    },
+    request,
+  );
+});
+
+const handleListOwnWorldsRoute = Effect.fn("api.route.handleListOwnWorlds")(function* (
   request: Request,
   url: URL,
 ) {
@@ -400,7 +530,7 @@ const handleListOwnWorldsRoute = Effect.fnUntraced(function* (
   return json(response);
 });
 
-const handleGetWorldRoute = Effect.fnUntraced(function* (
+const handleGetWorldRoute = Effect.fn("api.route.handleGetWorld")(function* (
   route: Extract<Route, { readonly _tag: "getWorld" }>,
   request: Request,
 ) {
@@ -410,7 +540,17 @@ const handleGetWorldRoute = Effect.fnUntraced(function* (
   return json({ world });
 });
 
-const handleGetWorldRuntimeRoute = Effect.fnUntraced(function* (
+const handleDeleteWorldRoute = Effect.fn("api.route.handleDeleteWorld")(function* (
+  route: Extract<Route, { readonly _tag: "deleteWorld" }>,
+  request: Request,
+) {
+  const actor = yield* parseActorFromHeaders(request);
+  const response = yield* worlds.deleteWorld(actor, route.worldId);
+
+  return json(response);
+});
+
+const handleGetWorldRuntimeRoute = Effect.fn("api.route.handleGetWorldRuntime")(function* (
   route: Extract<Route, { readonly _tag: "getWorldRuntime" }>,
   request: Request,
 ) {
@@ -422,7 +562,9 @@ const handleGetWorldRuntimeRoute = Effect.fnUntraced(function* (
   >);
 });
 
-const handleGetWorldRuntimeCheckpointRoute = Effect.fnUntraced(function* (
+const handleGetWorldRuntimeCheckpointRoute = Effect.fn(
+  "api.route.handleGetWorldRuntimeCheckpoint",
+)(function* (
   route: Extract<Route, { readonly _tag: "getWorldRuntimeCheckpoint" }>,
   request: Request,
 ) {
@@ -437,7 +579,7 @@ const handleGetWorldRuntimeCheckpointRoute = Effect.fnUntraced(function* (
   >);
 });
 
-const handleSubmitWorldCommandRoute = Effect.fnUntraced(function* (
+const handleSubmitWorldCommandRoute = Effect.fn("api.route.handleSubmitWorldCommand")(function* (
   route: Extract<Route, { readonly _tag: "submitWorldCommand" }>,
   request: Request,
 ) {
@@ -470,7 +612,7 @@ const upgradeSocketResponse = (upgraded: boolean) =>
     ),
   );
 
-const handleRuntimeSocketRoute = Effect.fnUntraced(function* (
+const handleRuntimeSocketRoute = Effect.fn("api.socket.handleRuntimeSocketRoute")(function* (
   route: Extract<Route, { readonly _tag: "runtimeSocket" }>,
   request: Request,
   url: URL,
@@ -484,6 +626,7 @@ const handleRuntimeSocketRoute = Effect.fnUntraced(function* (
       data: {
         actor,
         bound: false,
+        commandTraceParents: new Map(),
         receiptFiber: undefined,
         subscriptionFiber: undefined,
         worldId: route.worldId,
@@ -511,11 +654,15 @@ const handleRoute = (
       handleListPublicWorldsRoute(url),
     ),
     Match.when({ _tag: "createWorld" }, () => handleCreateWorldRoute(request)),
+    Match.when({ _tag: "telemetryTraces" }, () => handleTelemetryTracesRoute(request)),
     Match.when({ _tag: "listOwnWorlds" }, () =>
       handleListOwnWorldsRoute(request, url),
     ),
     Match.when({ _tag: "getWorld" }, (matchedRoute) =>
       handleGetWorldRoute(matchedRoute, request),
+    ),
+    Match.when({ _tag: "deleteWorld" }, (matchedRoute) =>
+      handleDeleteWorldRoute(matchedRoute, request),
     ),
     Match.when({ _tag: "getWorldRuntime" }, (matchedRoute) =>
       handleGetWorldRuntimeRoute(matchedRoute, request),
@@ -547,6 +694,33 @@ const sendReceiptMessageNow = (
   });
 };
 
+const sendReceiptMessage = (
+  socket: Bun.ServerWebSocket<RuntimeSocketData>,
+  commandId: string,
+  receipt: WorldCommandReceipt,
+  parent: Tracer.ExternalSpan | undefined,
+) => {
+  const tracedSend = Effect.sync(() => {
+    sendReceiptMessageNow(socket, receipt);
+  }).pipe(
+    Effect.withSpan("api.socket.command.receipt.send", {
+      attributes: {
+        "command.id": commandId,
+        "command.tag": receipt._tag,
+        "receipt.status": receipt.status,
+        "trace.propagated": parent !== undefined,
+        "world.id": socket.data.worldId,
+      },
+      kind: "producer",
+    }),
+  );
+
+  return Match.value(parent).pipe(
+    Match.when(Match.undefined, () => tracedSend),
+    Match.orElse((definedParent) => tracedSend.pipe(Effect.withParentSpan(definedParent))),
+  );
+};
+
 const sendQueuedMessageNow = (
   socket: Bun.ServerWebSocket<RuntimeSocketData>,
   commandId: string,
@@ -574,14 +748,21 @@ const sendResyncAndCloseNow = (
 
 const attachReceiptFiberNow = (
   socket: Bun.ServerWebSocket<RuntimeSocketData>,
+  commandId: string,
   receipt: Deferred.Deferred<WorldCommandReceipt>,
 ) => {
+  const parent = socket.data.commandTraceParents.get(commandId);
+
   socket.data.receiptFiber = runFork(
     Deferred.await(receipt).pipe(
-      Effect.tap((resolvedReceipt) => {
-        sendReceiptMessageNow(socket, resolvedReceipt);
-        return Effect.void;
-      }),
+      Effect.flatMap((resolvedReceipt) =>
+        sendReceiptMessage(socket, commandId, resolvedReceipt, parent),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          socket.data.commandTraceParents.delete(commandId);
+        }),
+      ),
     ),
   );
 };
@@ -607,16 +788,16 @@ const subscribeRuntimeFeedNow = (
 const interruptFiberIfPresent = (
   fiber: Fiber.Fiber<unknown, unknown> | undefined,
 ) =>
-  Match.value(fiber).pipe(
-    Match.when(Match.undefined, () => undefined),
-    Match.orElse((definedFiber) => {
-      void Effect.runPromise(Fiber.interrupt(definedFiber));
-    }),
-  );
+  Option.match(Option.fromUndefinedOr(fiber), {
+    onNone: () => undefined,
+    onSome: (definedFiber) => {
+      void runPromise(Fiber.interrupt(definedFiber));
+    },
+  });
 
 const ignoreSocketMessage = Effect.void;
 
-const completeSocketBind = Effect.fnUntraced(function* (
+const completeSocketBind = Effect.fn("api.socket.completeBind")(function* (
   socket: Bun.ServerWebSocket<RuntimeSocketData>,
 ) {
   const feed = yield* worldRuntime.openWorldRuntimeFeed(
@@ -672,7 +853,15 @@ const bindRuntimeSocket = (
   const continueBinding = () => continueSocketBind(socket, message);
 
   return Match.value(message.worldId === socket.data.worldId).pipe(
-    Match.when(true, () => continueBinding()),
+    Match.when(true, () =>
+      continueBinding().pipe(
+        Effect.withSpan("api.socket.bind", {
+          attributes: {
+            "world.id": socket.data.worldId,
+          },
+        }),
+      ),
+    ),
     Match.orElse(() => {
       sendResyncAndCloseNow(socket, 0, "runtime socket world mismatch");
       return Effect.void;
@@ -683,6 +872,7 @@ const bindRuntimeSocket = (
 const handleQueuedCommandResult = (
   socket: Bun.ServerWebSocket<RuntimeSocketData>,
   queued: Effect.Success<ReturnType<typeof worldRuntime.queueWorldCommand>>,
+  commandSpanParent: Tracer.ExternalSpan,
 ) =>
   Match.value(queued).pipe(
     Match.when({ _tag: "resolved" }, ({ receipt }) => {
@@ -690,8 +880,9 @@ const handleQueuedCommandResult = (
       return Effect.void;
     }),
     Match.when({ _tag: "queued" }, ({ commandId, receipt }) => {
+      socket.data.commandTraceParents.set(commandId, commandSpanParent);
       sendQueuedMessageNow(socket, commandId);
-      attachReceiptFiberNow(socket, receipt);
+      attachReceiptFiberNow(socket, commandId, receipt);
       return Effect.void;
     }),
     Match.exhaustive,
@@ -703,12 +894,36 @@ const handleWorldRuntimeCommandMessage = (
     WorldRuntimeClientMessage,
     { readonly _tag: "WorldRuntimeCommandMessage" }
   >,
-) =>
-  worldRuntime
-    .queueWorldCommand(socket.data.actor, socket.data.worldId, message.command)
-    .pipe(
-      Effect.flatMap((queued) => handleQueuedCommandResult(socket, queued)),
+) => {
+  const parent = parseSocketCommandTraceContext(message.traceContext);
+  const propagated = Option.isSome(parent);
+  const commandProgram = Effect.gen(function* () {
+    const commandSpanParent = toExternalSpan(yield* Effect.currentSpan);
+    const queued = yield* worldRuntime.queueWorldCommand(
+      socket.data.actor,
+      socket.data.worldId,
+      message.command,
     );
+
+    return yield* handleQueuedCommandResult(socket, queued, commandSpanParent);
+  }).pipe(
+    Effect.withSpan("api.socket.command", {
+      attributes: {
+        "command.id": message.command.commandId,
+        "command.tag": message.command._tag,
+        "trace.propagated": propagated,
+        "world.id": socket.data.worldId,
+      },
+      kind: "consumer",
+    }),
+  );
+
+  return Option.match(parent, {
+    onNone: () => commandProgram,
+    onSome: (definedParent) =>
+      commandProgram.pipe(Effect.withParentSpan(definedParent)),
+  });
+};
 
 const handleUnboundSocketMessage = (
   socket: Bun.ServerWebSocket<RuntimeSocketData>,
@@ -740,7 +955,7 @@ const handleBoundSocketMessage = (
     Match.exhaustive,
   );
 
-const handleSocketMessage = Effect.fnUntraced(function* (
+const handleSocketMessage = Effect.fn("api.socket.handleMessage")(function* (
   socket: Bun.ServerWebSocket<RuntimeSocketData>,
   rawMessage: SocketRawMessage,
 ) {
@@ -767,9 +982,47 @@ const handleRequest = (
   bunServer: Bun.Server<RuntimeSocketData>,
 ) => {
   const url = new URL(request.url);
+  const traceContextParent = parseRequestTraceContext(request);
   const route = matchRoute(request.method, url.pathname);
+  const worldId = routeWorldId(route);
+  const routeName = routeTag(route);
+  const spanName = requestSpanName(route);
+  const attributes = {
+    "api.route": routeName,
+    "http.route": routeName,
+    "http.method": request.method,
+    ...(worldId === undefined ? {} : { "world.id": worldId }),
+  } as const;
 
-  return handleRoute(route, request, url, bunServer);
+  const requestProgram = handleRoute(route, request, url, bunServer).pipe(
+    Effect.tap((response) =>
+      Effect.annotateCurrentSpan(
+        response === undefined
+          ? {
+              "http.status_class": "101",
+              "request.success": true,
+            }
+          : {
+              "http.status_class": `${Math.floor(response.status / 100)}xx`,
+              "request.success": true,
+            },
+      ),
+    ),
+    Effect.tapError(() =>
+      Effect.annotateCurrentSpan({
+        "request.success": false,
+      }),
+    ),
+    Effect.withSpan(spanName, {
+      attributes,
+    }),
+  );
+
+  return Option.match(traceContextParent, {
+    onNone: () => requestProgram,
+    onSome: (definedParent) =>
+      requestProgram.pipe(Effect.withParentSpan(definedParent)),
+  });
 };
 
 const server = Bun.serve<RuntimeSocketData>({
@@ -787,6 +1040,7 @@ const server = Bun.serve<RuntimeSocketData>({
     close: (socket) => {
       interruptFiberIfPresent(socket.data.subscriptionFiber);
       interruptFiberIfPresent(socket.data.receiptFiber);
+      socket.data.commandTraceParents.clear();
     },
     message: (socket, rawMessage) => {
       void runPromise(

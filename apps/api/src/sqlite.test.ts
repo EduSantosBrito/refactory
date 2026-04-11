@@ -8,6 +8,10 @@ const testAppConfig = Layer.succeed(AppConfig, {
   databasePath: ":memory:",
   port: 3001,
   rulesetVersion: "gpy7-v1",
+  telemetryEnabled: false,
+  telemetryOtlpBaseUrl: "http://localhost:4318",
+  telemetryServiceName: "refactory-api",
+  telemetryServiceVersion: "test",
   worldSchemaVersion: 1,
 });
 

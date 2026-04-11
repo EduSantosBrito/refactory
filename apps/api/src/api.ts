@@ -13,7 +13,7 @@ import { WorldService } from "./worlds.ts";
 const SystemApiHandlers = HttpApiBuilder.group(Api, "system", (handlers) =>
   handlers.handle(
     "health",
-    Effect.fnUntraced(function* () {
+    Effect.fn("api.httpapi.system.health")(function* () {
       const config = yield* AppConfig;
 
       return {
@@ -28,7 +28,7 @@ const WorldsApiHandlers = HttpApiBuilder.group(Api, "worlds", (handlers) =>
   handlers
     .handle(
       "createWorld",
-      Effect.fnUntraced(function* ({ payload }) {
+      Effect.fn("api.httpapi.worlds.createWorld")(function* ({ payload }) {
         const actor = yield* CurrentActor;
         const worlds = yield* WorldService;
         const world = yield* worlds
@@ -66,7 +66,7 @@ const WorldsApiHandlers = HttpApiBuilder.group(Api, "worlds", (handlers) =>
     )
     .handle(
       "listOwnWorlds",
-      Effect.fnUntraced(function* ({ query }) {
+      Effect.fn("api.httpapi.worlds.listOwnWorlds")(function* ({ query }) {
         const actor = yield* CurrentActor;
         const worlds = yield* WorldService;
 
@@ -94,7 +94,7 @@ const WorldsApiHandlers = HttpApiBuilder.group(Api, "worlds", (handlers) =>
     )
     .handle(
       "listPublicWorlds",
-      Effect.fnUntraced(function* ({ query }) {
+      Effect.fn("api.httpapi.worlds.listPublicWorlds")(function* ({ query }) {
         const worlds = yield* WorldService;
 
         return yield* worlds
@@ -121,7 +121,7 @@ const WorldsApiHandlers = HttpApiBuilder.group(Api, "worlds", (handlers) =>
     )
     .handle(
       "getWorld",
-      Effect.fnUntraced(function* ({ params }) {
+      Effect.fn("api.httpapi.worlds.getWorld")(function* ({ params }) {
         const actor = yield* CurrentActor;
         const worlds = yield* WorldService;
         const world = yield* worlds
@@ -158,8 +158,25 @@ const WorldsApiHandlers = HttpApiBuilder.group(Api, "worlds", (handlers) =>
       }),
     )
     .handle(
+      "deleteWorld",
+      Effect.fn("api.httpapi.worlds.deleteWorld")(function* ({ params }) {
+        const actor = yield* CurrentActor;
+        const worlds = yield* WorldService;
+
+        return yield* worlds.deleteWorld(actor, params.worldId).pipe(
+          Effect.catchTag("StorageError", () =>
+            Effect.fail(
+              new ServiceUnavailableError({
+                message: "Storage temporarily unavailable",
+              }),
+            ),
+          ),
+        );
+      }),
+    )
+    .handle(
       "getWorldRuntime",
-      Effect.fnUntraced(function* ({ params }) {
+      Effect.fn("api.httpapi.worlds.getWorldRuntime")(function* ({ params }) {
         const actor = yield* CurrentActor;
         const runtime = yield* WorldRuntimeService;
         const snapshot = yield* runtime
@@ -179,7 +196,7 @@ const WorldsApiHandlers = HttpApiBuilder.group(Api, "worlds", (handlers) =>
     )
     .handle(
       "getWorldRuntimeCheckpoint",
-      Effect.fnUntraced(function* ({ params }) {
+      Effect.fn("api.httpapi.worlds.getWorldRuntimeCheckpoint")(function* ({ params }) {
         const actor = yield* CurrentActor;
         const runtime = yield* WorldRuntimeService;
         const checkpoint = yield* runtime
@@ -208,7 +225,7 @@ const WorldsApiHandlers = HttpApiBuilder.group(Api, "worlds", (handlers) =>
     )
     .handle(
       "submitWorldCommand",
-      Effect.fnUntraced(function* ({ params, payload }) {
+      Effect.fn("api.httpapi.worlds.submitWorldCommand")(function* ({ params, payload }) {
         const actor = yield* CurrentActor;
         const runtime = yield* WorldRuntimeService;
         const receipt = yield* runtime

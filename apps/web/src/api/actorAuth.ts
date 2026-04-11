@@ -1,4 +1,5 @@
 import { Data, Effect, Schema } from "effect";
+import { BrowserStorage } from "../browserStorage.service";
 
 const defaultActorStorageKey = "refactory.actor.v1";
 const signingAlgorithm = "Ed25519";
@@ -82,42 +83,42 @@ const decodeBase64Url = (value: string) => {
     return undefined;
   }
 
-  try {
-    const binary = atob(normalized);
-    const bytes = new Uint8Array(binary.length);
-
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
-    }
-
-    return bytes;
-  } catch {
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(normalized)) {
     return undefined;
   }
+
+  const binary = atob(normalized);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes;
 };
 
-const storageGet = Effect.fnUntraced(function* (storageKey: string) {
-  return yield* Effect.try({
-    try: () => window.localStorage.getItem(storageKey),
-    catch: (cause) =>
+const storageGet = Effect.fn("web.auth.storage.get")(function* (storageKey: string) {
+  const storage = yield* BrowserStorage;
+  return yield* storage.localGet(storageKey).pipe(
+    Effect.mapError((cause) =>
       new ActorStorageError({ cause, operation: "actor.storage.get" }),
-  });
+    ),
+  );
 });
 
-const storageSet = Effect.fnUntraced(function* (
+const storageSet = Effect.fn("web.auth.storage.set")(function* (
   storageKey: string,
   value: string,
 ) {
-  yield* Effect.try({
-    try: () => {
-      window.localStorage.setItem(storageKey, value);
-    },
-    catch: (cause) =>
+  const storage = yield* BrowserStorage;
+  yield* storage.localSet(storageKey, value).pipe(
+    Effect.mapError((cause) =>
       new ActorStorageError({ cause, operation: "actor.storage.set" }),
-  });
+    ),
+  );
 });
 
-const parseStoredActorMaterial = Effect.fnUntraced(function* (raw: string) {
+const parseStoredActorMaterial = Effect.fn("web.auth.stored_material.parse")(function* (raw: string) {
   return yield* Effect.try({
     try: () => decodeStoredActorMaterial(raw),
     catch: (cause) =>
@@ -125,7 +126,7 @@ const parseStoredActorMaterial = Effect.fnUntraced(function* (raw: string) {
   });
 });
 
-const importActorKeyPair = Effect.fnUntraced(function* (
+const importActorKeyPair = Effect.fn("web.auth.key_pair.import")(function* (
   stored: StoredActorMaterial,
 ) {
   const publicKeyBytes = decodeBase64Url(stored.publicKeyRaw);
@@ -172,7 +173,7 @@ const importActorKeyPair = Effect.fnUntraced(function* (
   } satisfies ActorCredentials;
 });
 
-const generateActorCredentials = Effect.fnUntraced(function* (
+const generateActorCredentials = Effect.fn("web.auth.credentials.generate")(function* (
   displayName: string,
 ) {
   const generated = yield* Effect.tryPromise({
@@ -245,7 +246,7 @@ const updateStoredDisplayName = (
  * @param options - The display name to associate with the local actor and an optional storage key override.
  * @returns An `Effect` that yields the usable actor credentials.
  */
-export const getOrCreateActorCredentials = Effect.fnUntraced(
+export const getOrCreateActorCredentials = Effect.fn("web.auth.credentials.get_or_create")(
   function* (options: {
     readonly displayName: string;
     readonly storageKey?: string;
@@ -285,7 +286,7 @@ export const getOrCreateActorCredentials = Effect.fnUntraced(
  * @param options - Optional storage key override.
  * @returns An `Effect` that yields the stored display name or `undefined` when no actor exists yet.
  */
-export const readStoredActorDisplayName = Effect.fnUntraced(
+export const readStoredActorDisplayName = Effect.fn("web.auth.display_name.read_stored")(
   function* (options?: {
     readonly storageKey?: string;
   }) {
@@ -312,7 +313,7 @@ export const readStoredActorDisplayName = Effect.fnUntraced(
  * @param options - The actor credentials plus the request method and canonical path/query string to sign.
  * @returns An `Effect` that yields the signed actor headers.
  */
-export const makeSignedActorHeaders = Effect.fnUntraced(function* (options: {
+export const makeSignedActorHeaders = Effect.fn("web.auth.headers.make_signed")(function* (options: {
   readonly actor: ActorCredentials;
   readonly method: string;
   readonly pathAndQuery: string;

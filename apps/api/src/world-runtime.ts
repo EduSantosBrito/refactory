@@ -69,7 +69,7 @@ import {
   MODULAR_STORAGE_PORTS,
   type PortDefinition,
 } from "./game-constants.ts";
-import { GPY_7 } from "./maps.ts";
+import { DefaultFixturePlacement, GPY_7 } from "./maps.ts";
 import type { StorageError } from "./sqlite.ts";
 import { RuntimeCheckpointStore } from "./world-runtime-checkpoints.ts";
 import { WorldRepository } from "./worlds.ts";
@@ -126,8 +126,6 @@ const getRuntimeMapContract = (mapId: WorldSpec["mapId"]) => {
       return GPY_7;
   }
 };
-
-const modularStorageObjectId = () => "system:modular-storage-object";
 
 const rotateFacingSouth = (facing: Facing): Facing => {
   switch (facing) {
@@ -419,18 +417,32 @@ const tileKey = (coordinate: GridCoordinate) =>
 
 const normalizeRuntimeSnapshot = (
   snapshot: WorldRuntimeSnapshot,
-): WorldRuntimeSnapshot => ({
-  ...snapshot,
-  generators: snapshot.generators ?? [],
-  objects: snapshot.objects ?? [],
-  powerNetworks: snapshot.powerNetworks ?? [],
-  runtimeVersion: 3,
-  tiles: snapshot.tiles ?? defaultRuntimeMapContract.tiles,
-  transportLanes: snapshot.transportLanes.map((lane) => ({
-    ...lane,
-    pathTiles: lane.pathTiles ?? [],
-  })),
-});
+): WorldRuntimeSnapshot => {
+  const objects = snapshot.objects ?? [];
+  const objectIds = new Set(objects.map((object) => object.objectId));
+  const missingDefaultFixtures = defaultRuntimeMapContract.defaultFixtures
+    .filter((fixture) => !objectIds.has(fixture.objectId))
+    .map((fixture) => {
+      const containerIds =
+        fixture.buildableId === "modular_storage"
+          ? [modularStorageContainerId()]
+          : [];
+      return DefaultFixturePlacement.toRuntimeObject(fixture, containerIds);
+    });
+
+  return {
+    ...snapshot,
+    generators: snapshot.generators ?? [],
+    objects: [...objects, ...missingDefaultFixtures],
+    powerNetworks: snapshot.powerNetworks ?? [],
+    runtimeVersion: 3,
+    tiles: snapshot.tiles ?? defaultRuntimeMapContract.tiles,
+    transportLanes: snapshot.transportLanes.map((lane) => ({
+      ...lane,
+      pathTiles: lane.pathTiles ?? [],
+    })),
+  };
+};
 
 const fixedRuntimeObjects = (
   mapContract: typeof defaultRuntimeMapContract,
@@ -450,40 +462,37 @@ const fixedRuntimeObjects = (
     }),
   );
 
-  const storage: RuntimePlacedObject = {
-    buildableId: "modular_storage",
-    containerIds: [modularStorageContainerId()],
-    fixed: true,
-    machineId: undefined,
-    objectId: modularStorageObjectId(),
-    origin: mapContract.modularStorageAnchor,
-    removable: false,
-    rotation: undefined,
-  };
+  const fixtures = mapContract.defaultFixtures.map((fixture) => {
+    const containerIds =
+      fixture.buildableId === "modular_storage"
+        ? [modularStorageContainerId()]
+        : [];
+    return DefaultFixturePlacement.toRuntimeObject(fixture, containerIds);
+  });
 
-  return Match.value(starterBoxEntityId).pipe(
-    Match.when(Match.undefined, () => [...nodes, storage]),
-    Match.orElse((starterBoxEntityId) => [
-      ...nodes,
-      storage,
-      {
-        buildableId: "starter_box",
-        containerIds: [starterBoxContainerId(starterBoxEntityId)],
-        fixed: false,
-        machineId: undefined,
-        objectId: starterBoxEntityId,
-        origin: mapContract.starterBoxAnchor,
-        removable: true,
-        rotation: "south",
-      },
-    ]),
-  );
+  const objects: Array<RuntimePlacedObject> = [...nodes, ...fixtures];
+
+  if (starterBoxEntityId !== undefined) {
+    objects.push({
+      buildableId: "starter_box",
+      containerIds: [starterBoxContainerId(starterBoxEntityId)],
+      fixed: false,
+      machineId: undefined,
+      objectId: starterBoxEntityId,
+      origin: mapContract.starterBoxAnchor,
+      removable: true,
+      rotation: "south",
+    });
+  }
+
+  return objects;
 };
 
 type QueuedWorldCommand = {
   readonly actor: ActorContext;
   readonly cacheKey: string;
   readonly command: WorldCommand;
+  readonly enqueuedAtMs: number;
   readonly result: Deferred.Deferred<WorldCommandReceipt>;
 };
 
@@ -591,6 +600,9 @@ const commandCacheKey = (actor: ActorContext, commandId: string) =>
 
 const commandPayloadKey = (command: WorldCommand) => JSON.stringify(command);
 
+const commandTagSummary = (commands: ReadonlyArray<QueuedWorldCommand>) =>
+  commands.map((queued) => queued.command._tag).join(",");
+
 const assetInventoryContainerId = (assetId: string) =>
   `asset:${assetId}:inventory`;
 
@@ -672,7 +684,7 @@ const toRuntimeQuota = (snapshot: WorldSnapshot) =>
     reserved: quota.delivered,
   }));
 
-const buildInitialRuntimeSnapshot = Effect.fnUntraced(function* (
+const buildInitialRuntimeSnapshot = Effect.fn("api.worldRuntime.buildInitialRuntimeSnapshot")(function* (
   world: ReadyWorld,
 ) {
   const now = yield* Clock.currentTimeMillis;
@@ -3690,7 +3702,7 @@ const applyCommand = (
   }
 };
 
-export const applyWorldCommand = Effect.fnUntraced(function* (
+export const applyWorldCommand = Effect.fn("api.worldRuntime.applyWorldCommand")(function* (
   snapshot: WorldRuntimeSnapshot,
   actor: ActorContext,
   command: WorldCommand,
@@ -4679,19 +4691,19 @@ const recomputePowerState = (snapshot: WorldRuntimeSnapshot) => {
   };
 };
 
-export const progressWorldMachineWork = Effect.fnUntraced(function* (
+export const progressWorldMachineWork = Effect.fn("api.worldRuntime.progressWorldMachineWork")(function* (
   snapshot: WorldRuntimeSnapshot,
 ) {
   return yield* Effect.succeed(progressMachineWork(snapshot));
 });
 
-export const executeWorldTransport = Effect.fnUntraced(function* (
+export const executeWorldTransport = Effect.fn("api.worldRuntime.executeWorldTransport")(function* (
   snapshot: WorldRuntimeSnapshot,
 ) {
   return yield* Effect.succeed(executeTransport(snapshot));
 });
 
-export const recomputeWorldPowerState = Effect.fnUntraced(function* (
+export const recomputeWorldPowerState = Effect.fn("api.worldRuntime.recomputeWorldPowerState")(function* (
   snapshot: WorldRuntimeSnapshot,
 ) {
   return yield* Effect.succeed(recomputePowerState(snapshot));
@@ -4780,7 +4792,163 @@ const applyTick = (
   };
 };
 
-const runWorldLoop = Effect.fnUntraced(function* (
+const applyCommandPhaseWithSpans = Effect.fn(
+  "api.worldRuntime.phase.apply_command",
+)(function* (
+  state: TickPhaseState,
+  commands: ReadonlyArray<QueuedWorldCommand>,
+  now: number,
+) {
+  let nextState = state;
+
+  for (const queued of commands) {
+    const queueWaitMs = Math.max(0, now - queued.enqueuedAtMs);
+    const applied = yield* Effect.sync(() =>
+      applyCommand(nextState.snapshot, queued.actor, queued.command),
+    ).pipe(
+      Effect.withSpan(`api.worldRuntime.command.apply.${queued.command._tag}`, {
+        attributes: {
+          "command.id": queued.command.commandId,
+          "command.tag": queued.command._tag,
+          "command.queue_wait_ms": queueWaitMs,
+          "world.id": nextState.snapshot.worldId,
+        },
+      }),
+    );
+    nextState = {
+      changes: [...nextState.changes, ...applied.changes],
+      pendingReceipts: [
+        ...nextState.pendingReceipts,
+        {
+          cacheKey: queued.cacheKey,
+          deferred: queued.result,
+          pendingReceipt: applied.pendingReceipt,
+        },
+      ],
+      snapshot: applied.snapshot,
+    };
+  }
+
+  return nextState;
+});
+
+const recomputePowerPhaseWithSpans = Effect.fn(
+  "api.worldRuntime.phase.recompute_power",
+)(function* (
+  state: TickPhaseState,
+) {
+  return yield* Effect.sync(() => recomputePowerPhase(state));
+});
+
+const progressMachinesPhaseWithSpans = Effect.fn(
+  "api.worldRuntime.phase.progress_machines",
+)(function* (
+  state: TickPhaseState,
+) {
+  return yield* Effect.sync(() => progressMachinesPhase(state));
+});
+
+const transportPhaseWithSpans = Effect.fn(
+  "api.worldRuntime.phase.transport",
+)(function* (
+  state: TickPhaseState,
+) {
+  return yield* Effect.sync(() => transportPhase(state));
+});
+
+const materializeReceiptWithSpan = Effect.fn(
+  "api.worldRuntime.command.receipt.materialize",
+)(function* (
+  worldId: string,
+  tick: number,
+  deltaSequence: number,
+  pendingReceipt: PendingCommandReceipt,
+) {
+  const receipt = materializeReceipt(worldId, tick, deltaSequence, pendingReceipt);
+  yield* Effect.annotateCurrentSpan({
+    "command.id": pendingReceipt.commandId,
+    "command.tag": receipt._tag,
+    "receipt.status": receipt.status,
+    tick,
+    "world.id": worldId,
+  });
+  return receipt;
+});
+
+const applyTickWithSpans = Effect.fn(
+  "api.worldRuntime.tick.compute",
+)(function* (
+  currentSnapshot: WorldRuntimeSnapshot,
+  commands: ReadonlyArray<QueuedWorldCommand>,
+  now: number,
+  worldId: string,
+) {
+  const afterCommands = yield* applyCommandPhaseWithSpans(
+    startTickPhase(currentSnapshot, now),
+    commands,
+    now,
+  );
+  const afterPower = yield* recomputePowerPhaseWithSpans(afterCommands);
+  const afterMachines = yield* progressMachinesPhaseWithSpans(afterPower);
+  const afterTransport = yield* transportPhaseWithSpans(afterMachines);
+  const afterStorage = storageAcceptancePhase(afterTransport);
+  const finalPhaseState = observerUpdatePhase(afterStorage);
+
+  if (finalPhaseState.changes.length === 0) {
+    return {
+      delta: undefined,
+      receipts: [],
+      snapshot: finalPhaseState.snapshot,
+    } satisfies TickResult;
+  }
+
+  const deltaSequence = finalPhaseState.snapshot.deltaSequence + 1;
+  const finalSnapshot: WorldRuntimeSnapshot = {
+    ...finalPhaseState.snapshot,
+    deltaSequence,
+  };
+  const delta: WorldRuntimeDelta = {
+    changes: [
+      ...finalPhaseState.changes,
+      {
+        _tag: "TickAdvanced",
+        processedCommandCount: commands.length,
+        tick: finalSnapshot.tick,
+      },
+    ],
+    deltaSequence,
+    tick: finalSnapshot.tick,
+    worldId,
+  };
+  const receipts = yield* Effect.forEach(
+    finalPhaseState.pendingReceipts,
+    ({ cacheKey, deferred, pendingReceipt }) =>
+      Effect.map(
+        materializeReceiptWithSpan(
+          worldId,
+          finalSnapshot.tick,
+          deltaSequence,
+          pendingReceipt,
+        ),
+        (receipt) => ({
+          cacheKey,
+          deferred,
+          receipt,
+        }),
+      ),
+    {
+      concurrency: "unbounded",
+    },
+  );
+
+  return {
+    delta,
+    receipts,
+    snapshot: finalSnapshot,
+  } satisfies TickResult;
+});
+
+const runWorldLoop = Effect.fn("api.worldRuntime.runWorldLoop")(function* (
   runtime: LoadedWorldRuntime,
   checkpoints: RuntimeCheckpointStore["Service"],
 ) {
@@ -4788,10 +4956,57 @@ const runWorldLoop = Effect.fnUntraced(function* (
     yield* Effect.sleep("100 millis");
     const now = yield* Clock.currentTimeMillis;
     const commands = yield* Queue.takeAll(runtime.commandQueue);
-    const result = yield* Ref.modify(runtime.state, (snapshot) => {
-      const next = applyTick(snapshot, commands, now, runtime.worldId);
-      return [next, next.snapshot] as const;
-    });
+    const result = yield* Match.value(commands.length > 0).pipe(
+      Match.when(true, () =>
+        Effect.gen(function* () {
+          const snapshot = yield* Ref.get(runtime.state);
+          const commandTags = commandTagSummary(commands);
+          const tickResult = yield* applyTickWithSpans(
+            snapshot,
+            commands,
+            now,
+            runtime.worldId,
+          ).pipe(
+            Effect.withSpan("api.worldRuntime.tick", {
+              attributes: {
+                "command.count": commands.length,
+                "command.tags": commandTags,
+                "world.id": runtime.worldId,
+              },
+            }),
+            Effect.tap((computed) =>
+              Effect.annotateCurrentSpan({
+                "delta.emitted": computed.delta !== undefined,
+                tick: computed.snapshot.tick,
+              }),
+            ),
+          );
+
+          yield* Ref.set(runtime.state, tickResult.snapshot);
+          return tickResult;
+        }),
+      ),
+      Match.orElse(() =>
+        Ref.modify(runtime.state, (snapshot) => {
+          const next = applyTick(snapshot, commands, now, runtime.worldId);
+          return [next, next.snapshot] as const;
+        }),
+      ),
+    );
+
+    if (commands.length === 0 && result.delta !== undefined) {
+      yield* Effect.void.pipe(
+        Effect.withSpan("api.worldRuntime.tick", {
+          attributes: {
+            "command.count": 0,
+            "command.tags": "",
+            "delta.emitted": true,
+            tick: result.snapshot.tick,
+            "world.id": runtime.worldId,
+          },
+        }),
+      );
+    }
 
     if (result.delta !== undefined) {
       yield* SubscriptionRef.set(runtime.liveSnapshot, result.snapshot);
@@ -4868,7 +5083,7 @@ const makeWorldRuntimeService = Effect.gen(function* () {
       Match.orElse((definedError) => Effect.fail(definedError)),
     );
 
-  const buildLoadedRuntime = Effect.fnUntraced(function* (
+  const buildLoadedRuntime = Effect.fn("api.worldRuntime.buildLoadedRuntime")(function* (
     current: ReadonlyMap<string, LoadedWorldRuntime>,
     world: ReadyWorld,
   ) {
@@ -4928,7 +5143,7 @@ const makeWorldRuntimeService = Effect.gen(function* () {
       ]
     >([resolution, next]);
 
-  const buildPendingResolution = Effect.fnUntraced(function* (
+  const buildPendingResolution = Effect.fn("api.worldRuntime.buildPendingResolution")(function* (
     current: ReadonlyMap<string, RememberedCommand>,
     cacheKey: string,
     payloadKey: string,
@@ -4985,7 +5200,7 @@ const makeWorldRuntimeService = Effect.gen(function* () {
     );
   };
 
-  const authorizeWorld = Effect.fnUntraced(function* (options: {
+  const authorizeWorld = Effect.fn("api.worldRuntime.authorizeWorld")(function* (options: {
     readonly actor: ActorContext;
     readonly requireWrite: boolean;
     readonly worldId: string;
@@ -5035,7 +5250,7 @@ const makeWorldRuntimeService = Effect.gen(function* () {
     return world;
   });
 
-  const resolveReadyWorld = Effect.fnUntraced(function* (
+  const resolveReadyWorld = Effect.fn("api.worldRuntime.resolveReadyWorld")(function* (
     actor: ActorContext,
     worldId: string,
     requireWrite: boolean,
@@ -5077,7 +5292,7 @@ const makeWorldRuntimeService = Effect.gen(function* () {
     );
   });
 
-  const ensureRuntime = Effect.fnUntraced(function* (world: ReadyWorld) {
+  const ensureRuntime = Effect.fn("api.worldRuntime.ensureRuntime")(function* (world: ReadyWorld) {
     return yield* SynchronizedRef.modifyEffect(registry, (current) => {
       const existing = current.get(world.worldId);
 
@@ -5090,7 +5305,7 @@ const makeWorldRuntimeService = Effect.gen(function* () {
     });
   });
 
-  const getWorldRuntime = Effect.fnUntraced(function* (
+  const getWorldRuntime = Effect.fn("api.worldRuntime.getWorldRuntime")(function* (
     actor: ActorContext,
     worldId: string,
   ) {
@@ -5099,7 +5314,7 @@ const makeWorldRuntimeService = Effect.gen(function* () {
     return yield* Ref.get(runtime.state);
   });
 
-  const getWorldRuntimeCheckpoint = Effect.fnUntraced(function* (
+  const getWorldRuntimeCheckpoint = Effect.fn("api.worldRuntime.getWorldRuntimeCheckpoint")(function* (
     actor: ActorContext,
     worldId: string,
   ) {
@@ -5115,7 +5330,7 @@ const makeWorldRuntimeService = Effect.gen(function* () {
     return Option.getOrUndefined(checkpointOption);
   });
 
-  const openWorldRuntimeFeed = Effect.fnUntraced(function* (
+  const openWorldRuntimeFeed = Effect.fn("api.worldRuntime.openWorldRuntimeFeed")(function* (
     actor: ActorContext,
     worldId: string,
   ) {
@@ -5128,7 +5343,7 @@ const makeWorldRuntimeService = Effect.gen(function* () {
     };
   });
 
-  const openWorldRuntimeMessageStream = Effect.fnUntraced(function* (
+  const openWorldRuntimeMessageStream = Effect.fn("api.worldRuntime.openWorldRuntimeMessageStream")(function* (
     actor: ActorContext,
     worldId: string,
   ) {
@@ -5147,7 +5362,7 @@ const makeWorldRuntimeService = Effect.gen(function* () {
     }).pipe(Stream.concat(deltaMessages));
   });
 
-  const queueWorldCommand = Effect.fnUntraced(function* (
+  const queueWorldCommand = Effect.fn("api.worldRuntime.queueWorldCommand")(function* (
     actor: ActorContext,
     worldId: string,
     command: WorldCommand,
@@ -5171,6 +5386,14 @@ const makeWorldRuntimeService = Effect.gen(function* () {
             ),
           );
         },
+      ).pipe(
+        Effect.withSpan("api.worldRuntime.command.resolve", {
+          attributes: {
+            "command.id": command.commandId,
+            "command.tag": command._tag,
+            "world.id": worldId,
+          },
+        }),
       );
 
     switch (resolution._tag) {
@@ -5199,12 +5422,27 @@ const makeWorldRuntimeService = Effect.gen(function* () {
           receipt: resolution.deferred,
         } satisfies QueuedCommandResult;
       case "enqueue": {
+        const enqueuedAtMs = yield* Clock.currentTimeMillis;
         const accepted = yield* Queue.offer(runtime.commandQueue, {
           actor,
           cacheKey,
           command,
+          enqueuedAtMs,
           result: resolution.deferred,
-        });
+        }).pipe(
+          Effect.tap((offered) =>
+            Effect.annotateCurrentSpan({
+              "command.queue.accepted": offered,
+            }),
+          ),
+          Effect.withSpan("api.worldRuntime.command.queue", {
+            attributes: {
+              "command.id": command.commandId,
+              "command.tag": command._tag,
+              "world.id": worldId,
+            },
+          }),
+        );
 
         if (!accepted) {
           yield* SynchronizedRef.update(runtime.commandReceipts, (current) => {
@@ -5227,7 +5465,7 @@ const makeWorldRuntimeService = Effect.gen(function* () {
     }
   });
 
-  const submitWorldCommand = Effect.fnUntraced(function* (
+  const submitWorldCommand = Effect.fn("api.worldRuntime.submitWorldCommand")(function* (
     actor: ActorContext,
     worldId: string,
     command: WorldCommand,

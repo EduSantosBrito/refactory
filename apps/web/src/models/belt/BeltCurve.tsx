@@ -1,6 +1,5 @@
-import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
-import { FrontSide, type ShaderMaterial, Vector3 } from "three";
+import type { Mesh } from "three";
 import {
   ACCENT_Y,
   ARC_END,
@@ -24,12 +23,7 @@ import {
   resolveBeltSpeed,
 } from "./constants";
 import { buildArcCap, buildArcStrip, buildArcWall } from "./geometry";
-import {
-  GROOVE_RUNNING,
-  GROOVE_STOPPED,
-  grooveFrag,
-  grooveVert,
-} from "./shaders";
+import { useGrooveMaterial } from "./useGrooveMaterial";
 import type { BeltPort, BeltSegmentProps } from "./types";
 
 const H = BELT_TILE.height;
@@ -46,9 +40,13 @@ export const CURVE_PORTS: BeltPort[] = [
 /**
  * Procedural 90° curved belt segment — 1×1 tile.
  *
- * Pivots at (-0.5, 0, -0.5), arcing from west face (-X) to north face (-Z).
+ * Default (turn="left"): Pivots at (-0.5, 0, -0.5), arcing from west face (-X) to north face (-Z).
+ * When turn="right": Mirrored to arc from west face (-X) to south face (+Z).
+ *
  * Matches straight belt aesthetic with flat surface, scrolling grooves,
  * orange accent rails, base plate, accent stripe.
+ *
+ * Automatically uses TSL shaders when WebGPU is active.
  */
 export function BeltCurve({
   power = "running",
@@ -56,14 +54,17 @@ export function BeltCurve({
   ratePerMinute = DEFAULT_BELT_RATE_PER_MINUTE,
   speed,
   endCap,
+  turn = "left",
+  reverseScroll = false,
   ...props
 }: BeltSegmentProps) {
-  const overlayRef = useRef<ShaderMaterial>(null);
+  const overlayRef = useRef<Mesh>(null);
   const beltSpeed = resolveBeltSpeed({ ratePerMinute, speed }) ?? BELT_SPEED;
-
   const running = power === "running";
-  const groove = running ? GROOVE_RUNNING : GROOVE_STOPPED;
   const repeat = CURVE_ARC_LENGTH * GROOVE_DENSITY;
+  // For right turns, the mirrored geometry already flips the visual scroll direction,
+  // so we DON'T need to reverse it (the mirror handles it)
+  const effectiveReverseScroll = reverseScroll;
 
   const geo = useMemo(() => {
     const FI = CURVE_FRAME_INNER;
@@ -171,30 +172,21 @@ export function BeltCurve({
     };
   }, []);
 
-  useFrame((_, delta) => {
-    const mat = overlayRef.current;
-    if (!mat) return;
-
-    const u = mat.uniforms as {
-      uTime: { value: number };
-      uRepeat: { value: number };
-      uOpacity: { value: number };
-      uColor: { value: Vector3 };
-    };
-
-    if (running) {
-      u.uTime.value += delta * beltSpeed;
-    }
-
-    u.uOpacity.value += (groove.opacity - u.uOpacity.value) * 0.1;
-    u.uColor.value.lerp(
-      _lerpTarget.set(groove.color[0], groove.color[1], groove.color[2]),
-      0.1,
-    );
+  // Dual-mode groove material (GLSL for WebGL, TSL for WebGPU)
+  const { material } = useGrooveMaterial({
+    repeat,
+    running,
+    speed: beltSpeed,
+    reverseScroll: effectiveReverseScroll,
   });
+
+  // Mirror scale for right turn (flip Z axis)
+  const mirrorZ = turn === "right" ? -1 : 1;
 
   return (
     <group {...props}>
+      {/* Inner group handles the mirror transform for right turns */}
+      <group scale={[1, 1, mirrorZ]}>
       {/* ── Core body ─────────────────────────────────────── */}
       <mesh geometry={geo.top}>
         <meshStandardMaterial
@@ -308,25 +300,7 @@ export function BeltCurve({
       </mesh>
 
       {/* ── Groove overlay — scrolling motion lines ───────── */}
-      <mesh geometry={geo.overlay}>
-        <shaderMaterial
-          ref={overlayRef}
-          transparent
-          depthWrite={false}
-          side={FrontSide}
-          polygonOffset
-          polygonOffsetFactor={-4}
-          polygonOffsetUnits={-4}
-          vertexShader={grooveVert}
-          fragmentShader={grooveFrag}
-          uniforms={{
-            uTime: { value: 0 },
-            uRepeat: { value: repeat },
-            uOpacity: { value: groove.opacity },
-            uColor: { value: new Vector3(...groove.color) },
-          }}
-        />
-      </mesh>
+      <mesh ref={overlayRef} geometry={geo.overlay} material={material} />
 
       {/* ── End-cap brackets — terminus where belt meets building ── */}
       {/* Start cap at west face (-X) */}
@@ -336,15 +310,14 @@ export function BeltCurve({
           <meshStandardMaterial color={BELT_COLORS.cap} {...BELT_MAT.cap} />
         </mesh>
       )}
-      {/* End cap at north face (-Z) */}
+      {/* End cap at north face (-Z) for left turn, south face (+Z) for right turn */}
       {(endCap === "end" || endCap === "both") && (
         <mesh position={[0, H / 2 + 0.01, -0.5]}>
           <boxGeometry args={[SURFACE_W + 0.02, H * 0.65, 0.02]} />
           <meshStandardMaterial color={BELT_COLORS.cap} {...BELT_MAT.cap} />
         </mesh>
       )}
+      </group>
     </group>
   );
 }
-
-const _lerpTarget = new Vector3();

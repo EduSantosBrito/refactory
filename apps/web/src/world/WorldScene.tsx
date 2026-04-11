@@ -1,18 +1,37 @@
 import type { AssetId } from "@refactory/contracts/worlds";
+import type {
+  Facing,
+  GridCoordinate,
+  RuntimePlacedObject,
+  WorldRuntimeSnapshot,
+} from "@refactory/contracts/runtime";
 import { useFrame, useThree } from "@react-three/fiber";
-import { Array as EffectArray, pipe } from "effect";
+import { Array as EffectArray, Effect, pipe } from "effect";
 import {
   lazy,
   memo,
   startTransition,
   Suspense,
+  useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import * as THREE from "three";
+import { ModularStorage, Rocket } from "../models";
+import { PersonalBox, Portal } from "../models/building";
+import { WIPSign } from "../models/WIPSign";
+import type { PortalParams } from "../portal";
 import type { PurityTier, ResourceType } from "../models/ResourceNode";
 import { ResourceNode } from "../models/ResourceNode";
+import { runFork, runSync } from "../effectRuntime";
+import type {
+  ChunkBounds,
+  ChunkGenerationElement,
+  ChunkGenerationPayload,
+} from "./chunkGeneration.types";
+import { ChunkWorkerClient, ChunkWorkerUnavailableError } from "./chunkWorkerClient";
 
 /* ── Animal Crossing curved horizon ────────────────────────── */
 /* Override the vertex projection to curve the world downward   */
@@ -85,13 +104,13 @@ const NATURE_SPACING = 3;
 const WORLD_SEED = 42;
 const VISIBILITY_UPDATE_INTERVAL = 0.1;
 const TERRAIN_CULL_RADIUS = Math.hypot(CHUNK_SIZE * 0.5, CHUNK_SIZE * 0.5, 10);
-const RESOURCE_CULL_RADIUS = 5;
-const RESOURCE_CHUNK_SPAWN_RATE = 0.24;
-const RESOURCE_SECONDARY_SPAWN_RATE = 0.1;
-const RESOURCE_SPAWN_CLEARANCE_SQ = 100;
 const TOPOGRAPHIC_STEP = 0.45;
 const TOPOGRAPHIC_LINE_WIDTH = 0.08;
 const TOPOGRAPHIC_STRENGTH = 0.14;
+const MAP_TILE_SIZE = 2;
+const MAP_CENTER_X = 6;
+const MAP_CENTER_Z = 6;
+const CHUNK_WORKER_CONCURRENCY = 2;
 
 /* ── Chunk helpers ─────────────────────────────────────────── */
 
@@ -155,26 +174,38 @@ function buildTerrainGeometry(cx: number, cz: number): THREE.BufferGeometry {
   return geo;
 }
 
+function buildTerrainGeometryFromPayload(
+  payload: ChunkGenerationPayload,
+): THREE.BufferGeometry {
+  const geo = new THREE.PlaneGeometry(
+    CHUNK_SIZE,
+    CHUNK_SIZE,
+    TERRAIN_SUBDIVS,
+    TERRAIN_SUBDIVS,
+  );
+  geo.rotateX(-Math.PI / 2);
+
+  const position = geo.attributes.position;
+  if (position) {
+    const positionArray = position.array as Float32Array;
+    for (let i = 0; i < payload.heights.length; i++) {
+      positionArray[i * 3 + 1] = payload.heights[i] ?? 0;
+    }
+    position.needsUpdate = true;
+  }
+
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(payload.colors, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
 /* ── Nature picker per biome ───────────────────────────────── */
 
 type NaturePick = { type: string; size: "sm" | "md" | "lg"; sc: number };
 
-type Bounds = {
-  x: number;
-  y: number;
-  z: number;
-  radius: number;
-};
+type Bounds = ChunkBounds;
 
-type NatureRenderEl = NatureEl & {
-  y: number;
-  bounds: Bounds;
-};
-
-type ResourceRenderEl = ResDef & {
-  y: number;
-  bounds: Bounds;
-};
+type NatureRenderEl = ChunkGenerationElement;
 
 type VisibleChunk = {
   key: string;
@@ -182,7 +213,6 @@ type VisibleChunk = {
   cz: number;
   geometry: THREE.BufferGeometry;
   elements: readonly NatureRenderEl[];
-  resources: readonly ResourceRenderEl[];
 };
 
 const frustumProjectionMatrix = new THREE.Matrix4();
@@ -255,8 +285,7 @@ function sameVisibleChunks(
       !rightChunk ||
       leftChunk.key !== rightChunk.key ||
       leftChunk.geometry !== rightChunk.geometry ||
-      !sameRefs(leftChunk.elements, rightChunk.elements) ||
-      !sameRefs(leftChunk.resources, rightChunk.resources)
+      !sameRefs(leftChunk.elements, rightChunk.elements)
     ) {
       return false;
     }
@@ -290,10 +319,6 @@ function collectVisibleChunks(
           elements: pipe(
             data.elements,
             EffectArray.filter((element) => isBoundsVisible(element.bounds)),
-          ),
-          resources: pipe(
-            data.resources,
-            EffectArray.filter((resource) => isBoundsVisible(resource.bounds)),
           ),
         },
       ];
@@ -519,77 +544,21 @@ function generateChunkNature(cx: number, cz: number): NatureRenderEl[] {
   return elements;
 }
 
-/* ── Chunk resource generation ─────────────────────────────── */
-
-type ResDef = {
-  x: number;
-  z: number;
-  resource: ResourceType;
-  purity: PurityTier;
-  ry: number;
-};
-
-function spawnChunkResource(
-  rng: () => number,
-  cx: number,
-  cz: number,
-): ResourceRenderEl | undefined {
-  const x = cx * CHUNK_SIZE + (rng() - 0.5) * CHUNK_SIZE * 0.7;
-  const z = cz * CHUNK_SIZE + (rng() - 0.5) * CHUNK_SIZE * 0.7;
-
-  if (isInWater(x, z) || x * x + z * z < RESOURCE_SPAWN_CLEARANCE_SQ) {
-    return undefined;
-  }
-
-  const resource: ResourceType = rng() < 0.6 ? "iron" : "copper";
-  const p = rng();
-  const purity: PurityTier = p < 0.6 ? "impure" : p < 0.9 ? "normal" : "pure";
-  const y = surfaceHeightAt(x, z);
-
-  return {
-    x,
-    y,
-    z,
-    resource,
-    purity,
-    ry: rng() * Math.PI * 2,
-    bounds: makeBounds(
-      x,
-      y + RESOURCE_CULL_RADIUS * 0.4,
-      z,
-      RESOURCE_CULL_RADIUS,
-    ),
-  };
-}
-
-function generateChunkResources(cx: number, cz: number): ResourceRenderEl[] {
-  const seed = (WORLD_SEED + 777) ^ (cx * 83492791) ^ (cz * 29150633);
-  const rng = mulberry32(seed);
-  const resources: ResourceRenderEl[] = [];
-
-  if (rng() <= RESOURCE_CHUNK_SPAWN_RATE) {
-    const primary = spawnChunkResource(rng, cx, cz);
-    if (primary) resources.push(primary);
-  }
-
-  if (rng() <= RESOURCE_SECONDARY_SPAWN_RATE) {
-    const secondary = spawnChunkResource(rng, cx, cz);
-    if (secondary) resources.push(secondary);
-  }
-
-  return resources;
-}
-
 /* ── Chunk data cache ──────────────────────────────────────── */
 
 type ChunkData = {
   geometry: THREE.BufferGeometry;
   elements: NatureRenderEl[];
-  resources: ResourceRenderEl[];
   terrainBounds: Bounds;
 };
 
 const chunkDataCache = new Map<string, ChunkData>();
+
+const toChunkData = (payload: ChunkGenerationPayload): ChunkData => ({
+  geometry: buildTerrainGeometryFromPayload(payload),
+  elements: [...payload.elements],
+  terrainBounds: payload.terrainBounds,
+});
 
 function getOrCreateChunk(cx: number, cz: number): ChunkData {
   const key = chunkKey(cx, cz);
@@ -598,7 +567,6 @@ function getOrCreateChunk(cx: number, cz: number): ChunkData {
     data = {
       geometry: buildTerrainGeometry(cx, cz),
       elements: generateChunkNature(cx, cz),
-      resources: generateChunkResources(cx, cz),
       terrainBounds: makeBounds(
         cx * CHUNK_SIZE,
         2,
@@ -709,9 +677,6 @@ function rebuildSpatialHash(cx: number, cz: number): SpatialHash {
   return buildSpatialHash(allElements);
 }
 
-/** Max new chunks to generate per frame — prevents frame spikes */
-const GEN_BUDGET_PER_FRAME = 2;
-
 type InitialWorldSceneData = {
   keys: string[];
   spatialHash: SpatialHash;
@@ -743,14 +708,255 @@ export function preloadInitialWorldSceneData(): void {
   void getInitialWorldSceneData();
 }
 
+const fallbackRuntimeObjects: ReadonlyArray<RuntimePlacedObject> = [
+  {
+    buildableId: "iron_node_impure",
+    containerIds: [],
+    fixed: true,
+    objectId: "node:iron:1",
+    origin: { x: 2, y: 5 },
+    removable: false,
+    resourceNodeId: "node:iron:1",
+  },
+  {
+    buildableId: "iron_node_impure",
+    containerIds: [],
+    fixed: true,
+    objectId: "node:iron:2",
+    origin: { x: 2, y: 8 },
+    removable: false,
+    resourceNodeId: "node:iron:2",
+  },
+  {
+    buildableId: "rocket",
+    containerIds: [],
+    fixed: true,
+    objectId: "system:rocket",
+    origin: { x: 6, y: 3 },
+    removable: false,
+    rotation: "south",
+  },
+  {
+    buildableId: "portal_entry",
+    containerIds: [],
+    fixed: true,
+    objectId: "system:portal-entry",
+    origin: { x: 8, y: 4 },
+    removable: false,
+    rotation: "east",
+  },
+  {
+    buildableId: "portal_exit",
+    containerIds: [],
+    fixed: true,
+    objectId: "system:portal-exit",
+    origin: { x: 9, y: 2 },
+    removable: false,
+    rotation: "south",
+  },
+  {
+    buildableId: "wip_sign",
+    containerIds: [],
+    fixed: true,
+    objectId: "system:wip-sign",
+    origin: { x: 4, y: 4 },
+    removable: false,
+    rotation: "east",
+  },
+  {
+    buildableId: "modular_storage",
+    containerIds: ["system:modular-storage"],
+    fixed: true,
+    objectId: "system:modular-storage-object",
+    origin: { x: 9, y: 5 },
+    removable: false,
+    rotation: "east",
+  },
+];
+
+const rotationYByFacing: Record<Facing, number> = {
+  east: 0,
+  north: -Math.PI / 2,
+  south: Math.PI / 2,
+  west: Math.PI,
+};
+
+const gridToWorldXZ = (coordinate: GridCoordinate): readonly [number, number] =>
+  [
+    (coordinate.x - MAP_CENTER_X) * MAP_TILE_SIZE,
+    (coordinate.y - MAP_CENTER_Z) * MAP_TILE_SIZE,
+  ] as const;
+
+const gridToWorldPosition = (
+  coordinate: GridCoordinate,
+): [number, number, number] => {
+  const [x, z] = gridToWorldXZ(coordinate);
+  return [x, surfaceHeightAt(x, z), z];
+};
+
+const resourceRenderMeta = (
+  buildableId: string,
+):
+  | { readonly purity: PurityTier; readonly resource: ResourceType }
+  | undefined => {
+  switch (buildableId) {
+    case "iron_node_impure":
+      return { purity: "impure", resource: "iron" };
+    case "iron_node_normal":
+      return { purity: "normal", resource: "iron" };
+    case "iron_node_pure":
+      return { purity: "pure", resource: "iron" };
+    case "copper_node_impure":
+      return { purity: "impure", resource: "copper" };
+    case "copper_node_normal":
+      return { purity: "normal", resource: "copper" };
+    case "copper_node_pure":
+      return { purity: "pure", resource: "copper" };
+    default:
+      return undefined;
+  }
+};
+
+function RuntimeMapObject({
+  hasBackPortal,
+  isPortalEntry,
+  object,
+}: {
+  readonly hasBackPortal: boolean;
+  readonly isPortalEntry: boolean;
+  readonly object: RuntimePlacedObject;
+}) {
+  const position = gridToWorldPosition(object.origin);
+  const rotationY =
+    object.rotation === undefined ? 0 : rotationYByFacing[object.rotation];
+  const resource = resourceRenderMeta(object.buildableId);
+
+  if (resource !== undefined) {
+    return (
+      <ResourceNode
+        position={position}
+        rotation={[0, rotationY, 0]}
+        scale={4}
+        resource={resource.resource}
+        purity={resource.purity}
+      />
+    );
+  }
+
+  switch (object.buildableId) {
+    case "modular_storage":
+      return (
+        <ModularStorage
+          position={position}
+          rotation={[0, rotationY, 0]}
+          scale={1.1}
+          status="red"
+        />
+      );
+    case "portal_entry":
+      return isPortalEntry && hasBackPortal ? (
+        <Portal
+          type="entry"
+          position={position}
+          rotation={[0, rotationY, 0]}
+          active
+          onClick={(e) => {
+            e.stopPropagation();
+            window.dispatchEvent(
+              new CustomEvent("building-interact", {
+                detail: { id: "portal-entry" },
+              }),
+            );
+          }}
+          onPointerOver={(e) => {
+            e.stopPropagation();
+            document.body.classList.add("interactable-hover");
+          }}
+          onPointerOut={() => {
+            document.body.classList.remove("interactable-hover");
+          }}
+        />
+      ) : null;
+    case "portal_exit":
+      return isPortalEntry ? (
+        <Portal
+          type="exit"
+          position={position}
+          rotation={[0, rotationY, 0]}
+          active
+          onClick={(e) => {
+            e.stopPropagation();
+            window.dispatchEvent(
+              new CustomEvent("building-interact", {
+                detail: { id: "portal-exit" },
+              }),
+            );
+          }}
+          onPointerOver={(e) => {
+            e.stopPropagation();
+            document.body.classList.add("interactable-hover");
+          }}
+          onPointerOut={() => {
+            document.body.classList.remove("interactable-hover");
+          }}
+        />
+      ) : null;
+    case "rocket":
+      return (
+        <Rocket position={position} rotation={[0, rotationY, 0]} scale={0.55} />
+      );
+    case "starter_box":
+      return (
+        <PersonalBox
+          position={position}
+          rotation={[0, rotationY, 0]}
+          scale={1.1}
+        />
+      );
+    case "wip_sign":
+      return (
+        <WIPSign
+          position={position}
+          rotation={[0, rotationY, 0]}
+          scale={2}
+          onClick={(e) => {
+            e.stopPropagation();
+            window.dispatchEvent(
+              new CustomEvent("building-interact", {
+                detail: { id: "wip-sign" },
+              }),
+            );
+          }}
+          onPointerOver={(e) => {
+            e.stopPropagation();
+            document.body.classList.add("interactable-hover");
+          }}
+          onPointerOut={() => {
+            document.body.classList.remove("interactable-hover");
+          }}
+        />
+      );
+    default:
+      return null;
+  }
+}
+
 /* ── Scene root ────────────────────────────────────────────── */
 
 export function WorldScene({
   assetId,
+  hasBackPortal = false,
   isPaused = false,
+  isPortalEntry = false,
+  portalParams = null,
+  runtimeSnapshot,
 }: {
   readonly assetId: AssetId;
+  readonly hasBackPortal?: boolean;
   readonly isPaused?: boolean;
+  readonly isPortalEntry?: boolean;
+  readonly portalParams?: PortalParams | null;
+  readonly runtimeSnapshot?: WorldRuntimeSnapshot;
 }) {
   const initialWorldData = getInitialWorldSceneData();
   const camera = useThree((state) => state.camera);
@@ -761,6 +967,9 @@ export function WorldScene({
   const targetKeysRef = useRef<string[]>([]);
   const visibilityElapsedRef = useRef(0);
   const hasLoggedReadyRef = useRef(false);
+  const chunkWorkerRef = useRef<ChunkWorkerClient | null>(null);
+  const pendingChunkKeysRef = useRef<Set<string>>(new Set());
+  const isUnmountedRef = useRef(false);
 
   const [activeKeys, setActiveKeys] = useState<string[]>(() => [
     ...initialWorldData.keys,
@@ -768,6 +977,87 @@ export function WorldScene({
   const activeKeysRef = useRef(activeKeys);
   const [visibleChunks, setVisibleChunks] = useState<VisibleChunk[]>(() =>
     collectVisibleChunks(activeKeys, camera),
+  );
+  const mapObjects = useMemo(
+    () => runtimeSnapshot?.objects ?? fallbackRuntimeObjects,
+    [runtimeSnapshot],
+  );
+  const entryPortalXZ = useMemo(
+    () =>
+      gridToWorldXZ(
+        mapObjects.find((object) => object.buildableId === "portal_entry")
+          ?.origin ?? { x: 8, y: 4 },
+      ),
+    [mapObjects],
+  );
+  const exitPortalXZ = useMemo(
+    () =>
+      gridToWorldXZ(
+        mapObjects.find((object) => object.buildableId === "portal_exit")
+          ?.origin ?? { x: 9, y: 2 },
+      ),
+    [mapObjects],
+  );
+
+  const commitGeneratedChunks = useCallback(() => {
+    if (
+      genQueueRef.current.length > 0 ||
+      pendingChunkKeysRef.current.size > 0 ||
+      targetKeysRef.current.length === 0
+    ) {
+      return;
+    }
+
+    const { cx, cz } = prevChunkRef.current;
+    spatialHashRef.current = rebuildSpatialHash(cx, cz);
+    activeKeysRef.current = [...targetKeysRef.current];
+    startTransition(() => setActiveKeys([...targetKeysRef.current]));
+  }, []);
+
+  const requestChunkGeneration = useCallback(
+    (cx: number, cz: number) => {
+      const key = chunkKey(cx, cz);
+      if (chunkDataCache.has(key) || pendingChunkKeysRef.current.has(key)) {
+        return;
+      }
+
+      const worker = chunkWorkerRef.current;
+      pendingChunkKeysRef.current.add(key);
+
+      const generation =
+        worker?.generate(cx, cz) ??
+        Effect.fail(
+          new ChunkWorkerUnavailableError({
+            reason: "Chunk worker unavailable",
+          }),
+        );
+
+      runFork(
+        generation.pipe(
+          Effect.match({
+            onFailure: () => {
+              if (isUnmountedRef.current) {
+                return;
+              }
+              chunkDataCache.set(key, getOrCreateChunk(cx, cz));
+            },
+            onSuccess: (payload) => {
+              if (isUnmountedRef.current) {
+                return;
+              }
+              chunkDataCache.set(key, toChunkData(payload));
+            },
+          }),
+          Effect.ensuring(
+            Effect.sync(() => {
+              pendingChunkKeysRef.current.delete(key);
+              commitGeneratedChunks();
+            }),
+          ),
+        ),
+      );
+    },
+    [commitGeneratedChunks],
   );
 
   useEffect(() => {
@@ -781,6 +1071,28 @@ export function WorldScene({
   }, [activeKeys, camera]);
 
   useEffect(() => {
+    isUnmountedRef.current = false;
+    chunkWorkerRef.current = runSync(
+      ChunkWorkerClient.make.pipe(
+        Effect.match({
+          onFailure: () => null,
+          onSuccess: (worker) => worker,
+        }),
+      ),
+    );
+
+    return () => {
+      isUnmountedRef.current = true;
+      pendingChunkKeysRef.current.clear();
+      const worker = chunkWorkerRef.current;
+      if (worker) {
+        runSync(worker.dispose());
+      }
+      chunkWorkerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
     if (visibleChunks.length === 0 || hasLoggedReadyRef.current) {
       return;
     }
@@ -791,7 +1103,10 @@ export function WorldScene({
     firstFrameId = window.requestAnimationFrame(() => {
       secondFrameId = window.requestAnimationFrame(() => {
         hasLoggedReadyRef.current = true;
-        logWorldLoadEvent("Threejs fully loaded and game is playable");
+        logWorldLoadEvent(
+          "world-threejs-playable",
+          "Threejs fully loaded and game is playable",
+        );
         window.dispatchEvent(new Event(WORLD_VISUAL_READY_EVENT));
       });
     });
@@ -806,17 +1121,17 @@ export function WorldScene({
     /* ── 1. Process generation queue (spread across frames) ── */
     const queue = genQueueRef.current;
     if (queue.length > 0) {
-      const batch = queue.splice(0, GEN_BUDGET_PER_FRAME);
-      for (const [gcx, gcz] of batch) {
-        getOrCreateChunk(gcx, gcz);
+      while (
+        queue.length > 0 &&
+        pendingChunkKeysRef.current.size < CHUNK_WORKER_CONCURRENCY
+      ) {
+        const chunkToGenerate = queue.shift();
+        if (!chunkToGenerate) {
+          break;
+        }
+        requestChunkGeneration(chunkToGenerate[0], chunkToGenerate[1]);
       }
-      if (queue.length === 0) {
-        // All queued chunks generated — commit the full key set
-        const { cx, cz } = prevChunkRef.current;
-        spatialHashRef.current = rebuildSpatialHash(cx, cz);
-        activeKeysRef.current = [...targetKeysRef.current];
-        startTransition(() => setActiveKeys([...targetKeysRef.current]));
-      }
+      commitGeneratedChunks();
     }
 
     /* ── 2. Detect chunk boundary crossing ───────────────────── */
@@ -831,8 +1146,12 @@ export function WorldScene({
         for (let dz = -TERRAIN_RENDER_DIST; dz <= TERRAIN_RENDER_DIST; dz++) {
           const kcx = cx + dx;
           const kcz = cz + dz;
-          keys.push(chunkKey(kcx, kcz));
-          if (!chunkDataCache.has(chunkKey(kcx, kcz))) {
+          const key = chunkKey(kcx, kcz);
+          keys.push(key);
+          if (
+            !chunkDataCache.has(key) &&
+            !pendingChunkKeysRef.current.has(key)
+          ) {
             needGen.push([kcx, kcz]);
           }
         }
@@ -841,7 +1160,11 @@ export function WorldScene({
       evictDistantChunks(cx, cz);
       targetKeysRef.current = keys;
 
-      if (needGen.length === 0) {
+      const hasPendingForTargetKeys = keys.some((key) =>
+        pendingChunkKeysRef.current.has(key),
+      );
+
+      if (needGen.length === 0 && !hasPendingForTargetKeys) {
         // Everything cached — update immediately
         spatialHashRef.current = rebuildSpatialHash(cx, cz);
         activeKeysRef.current = keys;
@@ -872,7 +1195,7 @@ export function WorldScene({
 
   return (
     <>
-      {visibleChunks.map(({ key, cx, cz, geometry, elements, resources }) => {
+      {visibleChunks.map(({ key, cx, cz, geometry, elements }) => {
         return (
           <group key={key}>
             <TerrainChunk cx={cx} cz={cz} geometry={geometry} />
@@ -881,28 +1204,33 @@ export function WorldScene({
                 <WorldNature elements={elements} />
               </Suspense>
             ) : null}
-            {resources.map((r) => (
-              <ResourceNode
-                key={`${r.x},${r.z}`}
-                position={[r.x, r.y, r.z]}
-                rotation={[0, r.ry, 0]}
-                scale={4}
-                resource={r.resource}
-                purity={r.purity}
-              />
-            ))}
           </group>
         );
       })}
       <WaterSurface />
+
       <Suspense fallback={null}>
         <PlayerController
           assetId={assetId}
           enabled={!isPaused}
           playerPosRef={playerPosRef}
           spatialHashRef={spatialHashRef}
+          hasBackPortal={hasBackPortal}
+          isPortalEntry={isPortalEntry}
+          backPortalXZ={entryPortalXZ}
+          exitPortalXZ={exitPortalXZ}
+          portalParams={portalParams}
         />
       </Suspense>
+
+      {mapObjects.map((object) => (
+        <RuntimeMapObject
+          key={object.objectId}
+          hasBackPortal={hasBackPortal}
+          isPortalEntry={isPortalEntry}
+          object={object}
+        />
+      ))}
     </>
   );
 }

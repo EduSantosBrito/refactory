@@ -83,6 +83,8 @@ type StoredWorldPage = {
   readonly worlds: ReadonlyArray<StoredWorld>;
 };
 
+type DeleteWorldResult = "deleted" | "denied" | "not-found";
+
 type CreateWorldRecord = {
   readonly actor: ActorContext;
   readonly createdAt: string;
@@ -173,38 +175,26 @@ const failIfDefined = (
   error: InvalidWorldNameError | WorldAccessDeniedError | undefined,
 ) =>
   Match.value(error).pipe(
-    Match.when(Match.undefined, () => Effect.succeed(undefined)),
+    Match.when(Match.undefined, () => Effect.void),
     Match.orElse((definedError) => Effect.fail(definedError)),
   );
 
 const normalizeWorldListQuery = (query: WorldListQuery) => {
-  let cursor: ListingCursor | undefined;
+  const cursorValueOption = Option.fromUndefinedOr(query.cursor);
+  const decodedCursorOption = Option.flatMap(cursorValueOption, (cursorValue) =>
+    Option.fromUndefinedOr(decodeCursor(cursorValue)),
+  );
+  const normalizedSearch = Option.getOrUndefined(
+    Option.map(Option.fromUndefinedOr(query.search), normalizeSearchText),
+  );
 
-  switch (query.cursor) {
-    case undefined:
-      cursor = undefined;
-      break;
-    default:
-      cursor = decodeCursor(query.cursor);
-      break;
-  }
-
-  let normalizedSearch: string | undefined;
-
-  switch (query.search) {
-    case undefined:
-      normalizedSearch = undefined;
-      break;
-    default:
-      normalizedSearch = normalizeSearchText(query.search);
-      break;
-  }
-
-  return Match.value(query.cursor !== undefined && cursor === undefined).pipe(
+  return Match.value(
+    Option.isSome(cursorValueOption) && Option.isNone(decodedCursorOption),
+  ).pipe(
     Match.when(true, () => Option.none<NormalizedWorldListQuery>()),
     Match.orElse(() =>
       Option.some({
-        cursor,
+        cursor: Option.getOrUndefined(decodedCursorOption),
         limit: clampListLimit(query.limit),
         normalizedSearch,
       }),
@@ -212,33 +202,37 @@ const normalizeWorldListQuery = (query: WorldListQuery) => {
   );
 };
 
-const parseWorldSnapshotColumn = (json: string | null) => {
-  switch (json) {
-    case null:
-      return Effect.succeed(void 0);
-    default:
-      return decodeWorldSnapshotJson(json).pipe(
+const parseWorldSnapshotColumn = (json: string | null) =>
+  Match.value(json).pipe(
+    Match.when(
+      Match.null,
+      () => Effect.succeed<WorldSnapshot | undefined>(undefined),
+    ),
+    Match.orElse((value) =>
+      decodeWorldSnapshotJson(value).pipe(
         Effect.mapError(
           (cause) =>
             new PersistenceDecodeError({ cause, entity: "world_snapshot" }),
         ),
-      );
-  }
-};
+      ),
+    ),
+  );
 
-const parseWorldSpecColumn = (json: string | null) => {
-  switch (json) {
-    case null:
-      return Effect.succeed(void 0);
-    default:
-      return decodeWorldSpecJson(json).pipe(
+const parseWorldSpecColumn = (json: string | null) =>
+  Match.value(json).pipe(
+    Match.when(
+      Match.null,
+      () => Effect.succeed<WorldSpec | undefined>(undefined),
+    ),
+    Match.orElse((value) =>
+      decodeWorldSpecJson(value).pipe(
         Effect.mapError(
           (cause) =>
             new PersistenceDecodeError({ cause, entity: "world_spec" }),
         ),
-      );
-  }
-};
+      ),
+    ),
+  );
 
 const mapWorldRow = (row: WorldRow) =>
   Effect.all({
@@ -494,7 +488,9 @@ export class WorldRepository extends ServiceMap.Service<WorldRepository>()(
         world_name, normalized_name, mode, visibility, status, world_schema_version, ruleset_version,
         map_id, spec_json, snapshot_json, failure_reason, created_at, updated_at`;
 
-      const findById = Effect.fnUntraced(function* (worldId: string) {
+      const findById = Effect.fn("api.worlds.repo.findById")(function* (
+        worldId: string,
+      ) {
         const row = yield* Effect.try({
           try: () =>
             database
@@ -514,7 +510,42 @@ export class WorldRepository extends ServiceMap.Service<WorldRepository>()(
         return Option.some(yield* mapWorldRow(row));
       });
 
-      const createOrGetWorld = Effect.fnUntraced(function* (
+      const deleteOwnedWorld = Effect.fn("api.worlds.repo.deleteOwnedWorld")(function* (
+        hostPublicKey: string,
+        worldId: string,
+      ) {
+        const result = yield* Effect.try({
+          try: () =>
+            transaction(database, (): DeleteWorldResult => {
+              const row = database
+                .query<{ readonly host_public_key: string }, [string]>(
+                  "SELECT host_public_key FROM worlds WHERE world_id = ?1",
+                )
+                .get(worldId);
+
+              switch (row) {
+                case null:
+                  return "not-found";
+              }
+
+              if (row.host_public_key !== hostPublicKey) {
+                return "denied";
+              }
+
+              database
+                .query("DELETE FROM worlds WHERE world_id = ?1")
+                .run(worldId);
+
+              return "deleted";
+            }),
+          catch: (cause) =>
+            new StorageError({ cause, operation: "worlds.deleteOwnedWorld" }),
+        });
+
+        return result;
+      });
+
+      const createOrGetWorld = Effect.fn("api.worlds.repo.createOrGetWorld")(function* (
         record: CreateWorldRecord,
       ) {
         const specJson = yield* encodeWorldSpecJson(record.spec).pipe(
@@ -720,7 +751,7 @@ export class WorldRepository extends ServiceMap.Service<WorldRepository>()(
         return yield* mapWorldRow(row);
       });
 
-      const listOwnWorlds = Effect.fnUntraced(function* (
+      const listOwnWorlds = Effect.fn("api.worlds.repo.listOwnWorlds")(function* (
         hostPublicKey: string,
         query: NormalizedWorldListQuery,
       ) {
@@ -758,7 +789,7 @@ export class WorldRepository extends ServiceMap.Service<WorldRepository>()(
         return yield* finalizePage(rows, query.limit);
       });
 
-      const listPublicWorlds = Effect.fnUntraced(function* (
+      const listPublicWorlds = Effect.fn("api.worlds.repo.listPublicWorlds")(function* (
         query: NormalizedWorldListQuery,
       ) {
         const limit = query.limit + 1;
@@ -792,6 +823,7 @@ export class WorldRepository extends ServiceMap.Service<WorldRepository>()(
 
       return {
         createOrGetWorld,
+        deleteOwnedWorld,
         findById,
         listOwnWorlds,
         listPublicWorlds,
@@ -810,7 +842,7 @@ export class WorldService extends ServiceMap.Service<WorldService>()(
       const profiles = yield* ProfileRepository;
       const worlds = yield* WorldRepository;
 
-      const createWorld = Effect.fnUntraced(function* (
+      const createWorld = Effect.fn("api.worlds.service.createWorld")(function* (
         actor: ActorContext,
         request: CreateWorldRequest,
       ) {
@@ -838,6 +870,7 @@ export class WorldService extends ServiceMap.Service<WorldService>()(
           hostAssetId: request.hostAssetId,
           mapId: "GPY-7",
           mode: request.mode,
+          portal: request.portal,
           rulesetVersion: config.rulesetVersion,
           visibility,
           worldSchemaVersion: config.worldSchemaVersion,
@@ -864,7 +897,27 @@ export class WorldService extends ServiceMap.Service<WorldService>()(
         return toWorldDetail(world);
       });
 
-      const getWorld = Effect.fnUntraced(function* (
+      const deleteWorld = Effect.fn("api.worlds.service.deleteWorld")(function* (
+        actor: ActorContext,
+        worldId: string,
+      ) {
+        yield* profiles.upsertProfile(actor, new Date().toISOString());
+
+        const result = yield* worlds.deleteOwnedWorld(actor.publicKey, worldId);
+
+        return yield* Match.value(result).pipe(
+          Match.when("deleted", () => Effect.succeed({ worldId })),
+          Match.when("denied", () =>
+            Effect.fail(new WorldAccessDeniedError({ worldId })),
+          ),
+          Match.when("not-found", () =>
+            Effect.fail(new WorldNotFoundError({ worldId })),
+          ),
+          Match.exhaustive,
+        );
+      });
+
+      const getWorld = Effect.fn("api.worlds.service.getWorld")(function* (
         actor: ActorContext,
         worldId: string,
       ) {
@@ -892,7 +945,7 @@ export class WorldService extends ServiceMap.Service<WorldService>()(
         return toWorldDetail(world);
       });
 
-      const listOwnWorlds = Effect.fnUntraced(function* (
+      const listOwnWorlds = Effect.fn("api.worlds.service.listOwnWorlds")(function* (
         actor: ActorContext,
         query: WorldListQuery,
       ) {
@@ -910,7 +963,7 @@ export class WorldService extends ServiceMap.Service<WorldService>()(
         };
       });
 
-      const listPublicWorlds = Effect.fnUntraced(function* (
+      const listPublicWorlds = Effect.fn("api.worlds.service.listPublicWorlds")(function* (
         query: WorldListQuery,
       ) {
         const normalizedQuery = yield* requireNormalizedWorldListQuery(query);
@@ -925,6 +978,7 @@ export class WorldService extends ServiceMap.Service<WorldService>()(
 
       return {
         createWorld,
+        deleteWorld,
         getWorld,
         listOwnWorlds,
         listPublicWorlds,

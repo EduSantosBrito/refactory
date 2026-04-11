@@ -3,8 +3,10 @@ import type {
   WorldRuntimeSnapshotMessage,
 } from "@refactory/contracts/runtime";
 import {
+  type TraceContext as SocketTraceContext,
   type WorldCommandQueuedMessage,
   type WorldCommandReceiptMessage,
+  type WorldRuntimeCommandMessage as WorldRuntimeCommandMessageType,
   type WorldRuntimeResyncRequiredMessage,
   WorldRuntimeServerMessage,
 } from "@refactory/contracts/socket";
@@ -35,6 +37,7 @@ export {
 } from "@refactory/contracts/socket";
 
 import { Data, Effect, Schema } from "effect";
+import type { AnySpan } from "effect/Tracer";
 import type {
   SubmitWorldCommandResponse as SubmitWorldCommandResponseType,
   WorldCommand as WorldCommandType,
@@ -90,6 +93,38 @@ type RuntimeSocketOptions = {
 /** Build a fresh client-side world command id. */
 export const makeWorldCommandId = () => crypto.randomUUID();
 
+const makeTraceparent = (span: AnySpan) => {
+  const traceFlags = span.sampled ? "01" : "00";
+  return `00-${span.traceId}-${span.spanId}-${traceFlags}`;
+};
+
+const toSocketTraceContext = (span: AnySpan): SocketTraceContext => ({
+  traceparent: makeTraceparent(span),
+});
+
+/** Capture the currently active Effect span as W3C trace context for WS propagation. */
+export const getCurrentSocketTraceContext = Effect.fn(
+  "web.api.world_runtime.trace_context.current",
+)(function* () {
+  const span = yield* Effect.currentSpan;
+  return toSocketTraceContext(span);
+});
+
+/** Build a WS world-command envelope with trace context attached when sent from an Effect span. */
+export const makeWorldRuntimeCommandMessage = Effect.fn(
+  "web.api.world_runtime.command.message.make",
+)(function* (
+  command: WorldCommandType,
+) {
+  const traceContext = yield* getCurrentSocketTraceContext();
+
+  return {
+    _tag: "WorldRuntimeCommandMessage",
+    command,
+    traceContext,
+  } satisfies WorldRuntimeCommandMessageType;
+});
+
 /** Build the future websocket endpoint URL for runtime delta transport. */
 export const makeWorldRuntimeSocketUrl = (options: RuntimeSocketOptions) => {
   const origin = options.origin ?? window.location.origin;
@@ -102,7 +137,7 @@ export const makeWorldRuntimeSocketUrl = (options: RuntimeSocketOptions) => {
 };
 
 /** Build a signed websocket URL using the same actor identity model as HTTP. */
-export const makeSignedWorldRuntimeSocketUrl = Effect.fnUntraced(function* (
+export const makeSignedWorldRuntimeSocketUrl = Effect.fn("web.api.world_runtime.socket_url.make_signed")(function* (
   options: SignedRuntimeClientOptions & RuntimeSocketOptions,
 ) {
   const actor = yield* getOrCreateActorCredentials({
@@ -127,7 +162,7 @@ export const makeSignedWorldRuntimeSocketUrl = Effect.fnUntraced(function* (
 });
 
 /** Fetch the current authoritative runtime snapshot for a world. */
-export const getWorldRuntime = Effect.fnUntraced(function* (
+export const getWorldRuntime = Effect.fn("web.api.world_runtime.get")(function* (
   options: SignedRuntimeClientOptions & {
     readonly worldId: string;
   },
@@ -139,7 +174,7 @@ export const getWorldRuntime = Effect.fnUntraced(function* (
 });
 
 /** Fetch the latest persisted runtime checkpoint for a world, if one exists. */
-export const getWorldRuntimeCheckpoint = Effect.fnUntraced(function* (
+export const getWorldRuntimeCheckpoint = Effect.fn("web.api.world_runtime.checkpoint.get")(function* (
   options: SignedRuntimeClientOptions & {
     readonly worldId: string;
   },
@@ -151,7 +186,7 @@ export const getWorldRuntimeCheckpoint = Effect.fnUntraced(function* (
 });
 
 /** Submit a typed world command and wait for the tick-boundary receipt. */
-export const submitWorldCommand = Effect.fnUntraced(function* (
+export const submitWorldCommand = Effect.fn("web.api.world_runtime.command.submit")(function* (
   options: SignedRuntimeClientOptions & {
     readonly command: WorldCommandType;
     readonly worldId: string;
@@ -167,7 +202,7 @@ export const submitWorldCommand = Effect.fnUntraced(function* (
 });
 
 /** Decode a future realtime runtime message with the shared schema. */
-export const parseWorldRuntimeMessage = Effect.fnUntraced(function* (
+export const parseWorldRuntimeMessage = Effect.fn("web.api.world_runtime.message.parse")(function* (
   serialized: string,
 ) {
   return yield* Effect.try({

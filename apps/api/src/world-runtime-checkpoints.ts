@@ -67,7 +67,9 @@ export class RuntimeCheckpointStore extends ServiceMap.Service<RuntimeCheckpoint
       const sqlite = yield* SqliteDatabase;
       const { database } = sqlite;
 
-      const loadLatest = Effect.fnUntraced(function* (worldId: string) {
+      const loadLatest = Effect.fn("api.runtimeCheckpoints.loadLatest")(function* (
+        worldId: string,
+      ) {
         const row = yield* Effect.try({
           try: () =>
             database
@@ -90,7 +92,7 @@ export class RuntimeCheckpointStore extends ServiceMap.Service<RuntimeCheckpoint
         });
       });
 
-      const save = Effect.fnUntraced(function* (
+      const save = Effect.fn("api.runtimeCheckpoints.save")(function* (
         snapshot: WorldRuntimeSnapshot,
         savedAt: string,
       ) {
